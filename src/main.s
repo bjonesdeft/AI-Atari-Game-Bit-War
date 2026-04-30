@@ -128,6 +128,7 @@ ST_GAME_OVER  equ 3
 
 WIN_SCORE     equ 8         ; first to 8 wins (best of 15)
 ROUND_PAUSE   equ 60        ; ~1s pause after a successful hit
+GAME_OVER_DURATION equ 60   ; ~1s after match ends before auto-return to TITLE
 AI_FIRE_PERIOD equ 90       ; AI tries to fire every ~1.5s
 SCORE_BAND    equ 16        ; physical scanlines reserved at top for score
 SCORE_P0_X    equ 36        ; pixel X of P0 score digit on score band
@@ -334,7 +335,10 @@ NotTitleState:
         beq InRoundOver
 
         ; --- GAME_OVER state ---
-        ; Frozen scene with final scores. Fire press returns to TITLE.
+        ; Frozen scene with final scores.  Either a fire-press or the
+        ; auto-return timer (RoundTimer) returns to TITLE.
+        dec RoundTimer
+        beq GODoReset
         lda P0FireEdge
         ora P1FireEdge
         bmi GODoReset
@@ -1150,6 +1154,8 @@ P1FlashSame:
         sta GameOverWin       ; 0 = P0 wins
         lda #ST_GAME_OVER
         sta GameState
+        lda #GAME_OVER_DURATION
+        sta RoundTimer
         jmp NoM0Hit
 M0HitRound:
         lda #ROUND_PAUSE
@@ -1180,6 +1186,8 @@ NoM0Hit:
         sta GameOverWin       ; 1 = P1 wins
         lda #ST_GAME_OVER
         sta GameState
+        lda #GAME_OVER_DURATION
+        sta RoundTimer
         jmp NoM1Hit
 M1HitRound:
         lda #ROUND_PAUSE
@@ -1506,12 +1514,23 @@ SpriteCacheDone:
 
         ; Set sprite colors. While a flash counter is non-zero, override the
         ; player's color with FLASH_COLOR for the brief hit-flash effect.
+        ; In ST_GAME_OVER, the LOSING player flickers between its normal
+        ; color and black (gated by AIRand bit 7) so it appears to collapse
+        ; and vanish during the ~1s auto-return-to-title window.
         lda P0FlashCount
         beq UseP0Color
         lda #FLASH_COLOR
         jmp SetP0Color
 UseP0Color:
         lda #P0_COLOR
+        ldx GameState
+        cpx #ST_GAME_OVER
+        bne SetP0Color
+        ldx GameOverWin
+        beq SetP0Color           ; GameOverWin=0 => P0 won, render normally
+        ldx AIRand
+        bpl SetP0Color           ; AIRand bit 7 = 0 => visible this frame
+        lda #0                   ; bit 7 = 1 => black (vanish frame)
 SetP0Color:
         sta COLUP0
 
@@ -1521,6 +1540,14 @@ SetP0Color:
         jmp SetP1Color
 UseP1Color:
         lda #P1_COLOR
+        ldx GameState
+        cpx #ST_GAME_OVER
+        bne SetP1Color
+        ldx GameOverWin
+        bne SetP1Color           ; GameOverWin=1 => P1 won, render normally
+        ldx AIRand
+        bpl SetP1Color
+        lda #0
 SetP1Color:
         sta COLUP1
 
@@ -1757,73 +1784,69 @@ DGP1Allow:
         rts
 
 ;---------------------------------------------------------------
-; TITLE KERNEL — renders "TEST GAME" via PF1/PF2, 192 scanlines.
+; TITLE KERNEL — renders "DEFT WARS" once across the screen using
+; an asymmetric (non-mirrored) playfield with mid-line PF0/PF1/PF2
+; right-half writes.  Layout: 80 lines top pad + 48 lines glyphs
+; (6 rows x 8 scanlines) + 64 lines bottom pad = 192 visible lines.
+;
+; Per-scanline timing (target windows for right-half PF writes):
+;   PF0 right write window: cycles 28..49 (after PF0L latch, before PF0R)
+;   PF1 right write window: cycles 39..55 (after PF1L latch, before PF1R)
+;   PF2 right write window: cycles 50..65 (after PF2L latch, before PF2R)
 ;---------------------------------------------------------------
 TitleKernel:
         lda #TITLE_COLOR
         sta COLUPF
         lda #0
-        sta CTRLPF              ; bit0=0 -> repeat (unmirrored)
+        sta CTRLPF              ; bit0=0 -> non-mirrored: PF redrawn for right
         sta PF0
         sta PF1
         sta PF2
 
-        ; Top spacing: 36 black scanlines
-        ldx #36
+        ; Top spacing: 80 black scanlines
+        ldx #80
 T_TopLoop:
         sta WSYNC
         dex
         bne T_TopLoop
 
-        ; "TEST" — 6 glyph rows x 8 scanlines
+        ; "DEFT WARS" — 6 glyph rows x 8 scanlines, asymmetric playfield.
         ldy #0
-T_TestOuter:
+T_TitleOuter:
         ldx #8
-T_TestInner:
-        sta WSYNC
-        lda TestPF1Tbl,Y
-        sta PF1
-        lda TestPF2Tbl,Y
-        sta PF2
-        dex
-        bne T_TestInner
+T_TitleInner:
+        sta WSYNC                ; cycle 0
+        lda TitleLeftPF0,Y       ; +4 = 4
+        sta PF0                  ; +3 = 7  (HBLANK)
+        lda TitleLeftPF1,Y       ; +4 = 11
+        sta PF1                  ; +3 = 14 (HBLANK)
+        lda TitleLeftPF2,Y       ; +4 = 18
+        sta PF2                  ; +3 = 21 (HBLANK; PF2L read starts ~cyc 38.7)
+        nop                      ; +2 = 23
+        nop                      ; +2 = 25
+        nop                      ; +2 = 27
+        nop                      ; +2 = 29
+        lda TitleRightPF0,Y      ; +4 = 33
+        sta PF0                  ; +3 = 36 (window 28..49) ✓
+        lda TitleRightPF1,Y      ; +4 = 40
+        sta PF1                  ; +3 = 43 (window 39..55) ✓
+        lda TitleRightPF2,Y      ; +4 = 47
+        nop                      ; +2 = 49
+        nop                      ; +2 = 51
+        sta PF2                  ; +3 = 54 (window 50..65) ✓
+        dex                      ; +2 = 56
+        bne T_TitleInner         ; +3 = 59 (taken)
         iny
         cpy #6
-        bne T_TestOuter
+        bne T_TitleOuter
 
         lda #0
+        sta PF0
         sta PF1
         sta PF2
 
-        ; Mid gap: 24 lines
-        ldx #24
-T_GapLoop:
-        sta WSYNC
-        dex
-        bne T_GapLoop
-
-        ; "GAME"
-        ldy #0
-T_GameOuter:
-        ldx #8
-T_GameInner:
-        sta WSYNC
-        lda GamePF1Tbl,Y
-        sta PF1
-        lda GamePF2Tbl,Y
-        sta PF2
-        dex
-        bne T_GameInner
-        iny
-        cpy #6
-        bne T_GameOuter
-
-        lda #0
-        sta PF1
-        sta PF2
-
-        ; Bottom spacing: 36 lines
-        ldx #36
+        ; Bottom spacing: 64 lines
+        ldx #64
 T_BotLoop:
         sta WSYNC
         dex
@@ -2091,40 +2114,71 @@ DigitGfx:
         .byte %01111110
 
 ;---------------------------------------------------------------
-; Playfield letter tables (same as Phase P2).
+; Playfield letter tables for the title screen "DEFT WARS".
+;
+; Cells per scanline (40 total, 4 px each):
+;   Left half  (cells  0..19): PF0L (4) + PF1L (8) + PF2L (8)
+;   Right half (cells 20..39): PF0R (4) + PF1R (8) + PF2R (8)
+; Cell-to-bit mapping:
+;   PF0L: cells 0..3   -> bits 4,5,6,7
+;   PF1L: cells 4..11  -> bits 7,6,5,4,3,2,1,0
+;   PF2L: cells 12..19 -> bits 0,1,2,3,4,5,6,7
+;   PF0R: cells 20..23 -> bits 4,5,6,7
+;   PF1R: cells 24..31 -> bits 7..0
+;   PF2R: cells 32..39 -> bits 0..7
+;
+; Glyph layout (3 px wide each, 1 px gap):
+;   Left half : margin(2) D(3) gap(1) E(3) gap(1) F(3) gap(1) T(3) margin(3)
+;   Right half: margin(2) W(3) gap(1) A(3) gap(1) R(3) gap(1) S(3) margin(3)
 ;---------------------------------------------------------------
 
-TestPF1Tbl:
-        .byte $EE   ; row 0  T(### ) E(### )
-        .byte $48   ; row 1  T(.#. ) E(#.. )
-        .byte $4E   ; row 2  T(.#. ) E(### )
-        .byte $48   ; row 3  T(.#. ) E(#.. )
-        .byte $48   ; row 4  T(.#. ) E(#.. )
-        .byte $4E   ; row 5  T(.#. ) E(### )
+TitleLeftPF0:
+        .byte $C0   ; row 0  D=### E=### F=### T=###
+        .byte $40   ; row 1
+        .byte $40   ; row 2
+        .byte $40   ; row 3
+        .byte $40   ; row 4
+        .byte $C0   ; row 5
 
-TestPF2Tbl:
-        .byte $77   ; row 0  S(### ) T(### )
-        .byte $21   ; row 1  S(#.. ) T(.#. )
-        .byte $27   ; row 2  S(### ) T(.#. )
-        .byte $24   ; row 3  S(..# ) T(.#. )
-        .byte $24   ; row 4  S(..# ) T(.#. )
-        .byte $27   ; row 5  S(### ) T(.#. )
+TitleLeftPF1:
+        .byte $BB   ; row 0
+        .byte $A2   ; row 1
+        .byte $BB   ; row 2
+        .byte $A2   ; row 3
+        .byte $A2   ; row 4
+        .byte $BA   ; row 5
 
-GamePF1Tbl:
-        .byte $E4   ; row 0  G(### ) A(.#. )
-        .byte $8A   ; row 1  G(#.. ) A(#.# )
-        .byte $AE   ; row 2  G(#.# ) A(### )
-        .byte $AA   ; row 3  G(#.# ) A(#.# )
-        .byte $EA   ; row 4  G(### ) A(#.# )
-        .byte $EA   ; row 5  G(### ) A(#.# )
+TitleLeftPF2:
+        .byte $1D   ; row 0
+        .byte $08   ; row 1
+        .byte $09   ; row 2
+        .byte $08   ; row 3
+        .byte $08   ; row 4
+        .byte $08   ; row 5
 
-GamePF2Tbl:
-        .byte $75   ; row 0  M(#.# ) E(### )
-        .byte $17   ; row 1  M(### ) E(#.. )
-        .byte $75   ; row 2  M(#.# ) E(### )
-        .byte $15   ; row 3  M(#.# ) E(#.. )
-        .byte $15   ; row 4  M(#.# ) E(#.. )
-        .byte $75   ; row 5  M(#.# ) E(### )
+TitleRightPF0:
+        .byte $40   ; row 0  W=#.# A=### R=### S=###
+        .byte $40   ; row 1
+        .byte $40   ; row 2
+        .byte $40   ; row 3
+        .byte $C0   ; row 4
+        .byte $80   ; row 5
+
+TitleRightPF1:
+        .byte $BB   ; row 0
+        .byte $AA   ; row 1
+        .byte $BB   ; row 2
+        .byte $AB   ; row 3
+        .byte $AA   ; row 4
+        .byte $2A   ; row 5
+
+TitleRightPF2:
+        .byte $1D   ; row 0
+        .byte $01   ; row 1
+        .byte $1D   ; row 2
+        .byte $10   ; row 3
+        .byte $11   ; row 4
+        .byte $1D   ; row 5
 
 ;---------------------------------------------------------------
 ; Reset / NMI / IRQ vectors

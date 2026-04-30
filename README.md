@@ -2,8 +2,9 @@
 
 A 4KB NTSC Atari 2600 demo ROM written in 6502 assembly and built with DASM.
 Two joysticks each control a sprite (acceleration + friction movement) and can
-fire a single-pixel missile in any of 8 directions. Title screen displays
-"TEST GAME" on power-on; pressing fire on either joystick starts gameplay.
+fire a single-pixel missile in any of 8 directions. The title screen displays
+**"DEFT WARS"** once across the screen on power-on; pressing fire on either
+joystick starts gameplay.
 
 v2 added a low-pitched fire SFX, a high-pitched hit SFX (white noise burst),
 and player-vs-player collisions that bounce the sprites apart with an 8-frame
@@ -27,9 +28,12 @@ v3 layers a full match flow on top:
   frame so the contact is visually obvious.
 - A successful missile hit increments the scorer, plays the hit sound, then
   drops the game into ROUND_OVER for ~1 second; positions reset and play
-  resumes. When a score reaches 8, the game enters GAME_OVER (sprites freeze,
-  final scores remain on the score band). Pressing fire returns to the
-  title screen with both scores reset to zero.
+  resumes.
+- When a score reaches 8 the game enters GAME_OVER. The **losing player**
+  flickers between its normal color and black (a "collapse / vanish"
+  animation) for ~1 second, after which the game **automatically returns to
+  the title screen** with both scores reset to zero. Pressing fire during
+  the GAME_OVER pause returns to the title immediately.
 
 See [PRD.md](./PRD.md) and [SPECIFICATION.md](./SPECIFICATION.md) for goals,
 requirements, and the implementation plan.
@@ -90,9 +94,17 @@ task run        # opens build/ataritest.bin in Stella
 
 **Power-on / title (Phase P2)**
 - [ ] Stable NTSC frame at 60Hz; no rolling, no flicker
-- [ ] Centered "TEST GAME" rendered via PF1/PF2 on power-on
+- [ ] Centered "DEFT WARS" rendered ONCE across the screen via an asymmetric
+      (non-mirrored) playfield with mid-line PF0/PF1/PF2 right-half writes
 - [ ] Pressing fire on P0 OR P1 transitions to play state
 - [ ] Pressing only a joystick direction (no fire) does NOT transition
+
+**Game-over flow (v3 polish)**
+- [ ] On reaching score 8, game enters GAME_OVER and the losing player
+      flickers between its normal color and black for ~1 second
+- [ ] After ~1 second the game auto-returns to the title screen
+- [ ] Pressing fire during GAME_OVER returns to the title immediately
+- [ ] Both scores reset to 0 when a new game starts from the title
 
 **Players + movement (Phase P3)**
 - [ ] Two color-distinct sprites in play state (yellow P0, cyan P1; identical shape)
