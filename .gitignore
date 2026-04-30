@@ -1,0 +1,13 @@
+# Build artifacts
+build/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Embedded third-party tooling (separate git repo)
+deft

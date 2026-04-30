@@ -1,0 +1,53 @@
+version: '3'
+
+# AtariTest project Taskfile.
+#
+# Orchestrates the DASM build for the 4KB NTSC ROM and convenience tasks
+# for cleaning and launching the build in Stella.
+
+vars:
+  ROM_NAME: ataritest
+  BUILD_DIR: build
+  SRC_MAIN: src/main.s
+  INCLUDE_DIR: include
+
+tasks:
+  default:
+    desc: List all tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Assemble src/main.s with DASM into build/ataritest.bin (4096 bytes)
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - >-
+        dasm {{.SRC_MAIN}}
+        -I{{.INCLUDE_DIR}}
+        -f3
+        -o{{.BUILD_DIR}}/{{.ROM_NAME}}.bin
+        -l{{.BUILD_DIR}}/{{.ROM_NAME}}.lst
+        -s{{.BUILD_DIR}}/{{.ROM_NAME}}.sym
+      - 'echo "ROM size:"; stat -f "%z bytes  %N" {{.BUILD_DIR}}/{{.ROM_NAME}}.bin'
+
+  clean:
+    desc: Remove the build directory
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+
+  run:
+    desc: Open the built ROM in Stella
+    deps: [build]
+    cmds:
+      - open -a /Applications/Stella.app {{.BUILD_DIR}}/{{.ROM_NAME}}.bin
+
+  size:
+    desc: Print the ROM size (must equal 4096 bytes for a 4KB cart)
+    cmds:
+      - stat -f "%z bytes  %N" {{.BUILD_DIR}}/{{.ROM_NAME}}.bin
+
+  hash:
+    desc: Print SHA-256 of the ROM (used for reproducibility checks)
+    cmds:
+      - shasum -a 256 {{.BUILD_DIR}}/{{.ROM_NAME}}.bin

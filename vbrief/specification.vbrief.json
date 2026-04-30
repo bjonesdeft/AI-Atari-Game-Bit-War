@@ -1,0 +1,289 @@
+{
+  "vBRIEFInfo": {
+    "version": "0.6",
+    "description": "Specification vBRIEF for AtariTest. Source of truth for SPECIFICATION.md (Full path interview strategy).",
+    "updated": "2026-04-29T23:32:00Z"
+  },
+  "plan": {
+    "id": "ataritest",
+    "title": "AtariTest SPECIFICATION",
+    "status": "approved",
+    "narratives": {
+      "Overview": "AtariTest is a 4KB NTSC Atari 2600 ROM, written in 6502 assembly and built with DASM, that demonstrates two-joystick control: each joystick drives a sprite with acceleration/friction movement and can fire a single-pixel missile in any of 8 directions. A title screen displays \"TEST GAME\" on power-on; pressing fire on either joystick starts gameplay. Verification is via Stella on macOS. See PRD.md for goals, requirements, and decisions.",
+      "Architecture": "Single-bank 4KB cartridge layout, NO bankswitching. Standard 2-line kernel with NTSC timing (262 scanlines/frame, 60Hz). Source is organized by concern under src/: main.s (entry/reset/NMI vectors), kernel.s (vertical sync/blank, visible kernel, overscan), title.s (title-screen state and PF0/PF1/PF2 letter data for \"TEST GAME\"), input.s (joystick + INPT4/INPT5 fire button reading, edge-detect helpers), movement.s (per-player position, velocity, acceleration, friction, screen-bound clamping), missile.s (per-player missile state: active flag, x/y, dx/dy, edge despawn), collision.s (CXM0P/CXM1P latch handling, hit-flash state machine), and gamestate.s (TITLE -> PLAY transition).\n\nMemory map (zero-page RAM): GameState (0=TITLE,1=PLAY), P0X, P0Y, P0VX, P0VY, P1X, P1Y, P1VX, P1VY (signed fixed-point: high byte position, low byte fraction), P0FireEdge, P1FireEdge, M0Active, M0X, M0Y, M0DX, M0DY, M1Active, M1X, M1Y, M1DX, M1DY, P0FlashCount, P1FlashCount, FrameCounter. ROM constants: PFCOLOR_TITLE, P0COLOR, P1COLOR, FLASH_COLOR, MAX_SPEED, ACCEL, FRICTION, MISSILE_SPEED, FLASH_FRAMES, PLAYFIELD_LEFT/RIGHT/TOP/BOTTOM.\n\nFrame loop: VSYNC (3 LN) -> VBLANK (37 LN) [read SWCHA/INPT4/INPT5, update game state per GameState, compute fine-position registers HMP0/HMP1/HMM0/HMM1, set GRP0/GRP1 patterns, set COLUP0/COLUP1 with flash override] -> visible kernel (192 LN) [TITLE: PF-only TEST GAME banner; PLAY: 2-LN kernel rendering P0/P1 sprites + M0/M1 missiles] -> overscan (30 LN) [edge despawn missiles, decrement flash counters, update edge-detect state]. Movement uses 8-bit position + 8-bit fractional accumulator; acceleration/friction applied in VBLANK; clamp to playfield bounds before WSYNC. Missiles use sign-magnitude DX/DY (-MISSILE_SPEED..+MISSILE_SPEED) and despawn at any bound. Collisions read CXM0P (M0 vs P1) and CXM1P (M1 vs P0); on hit, set the hit player's flash counter to FLASH_FRAMES and clear the missile.",
+      "ProblemStatement": "Demonstrate independent two-player joystick control on the Atari 2600: each joystick drives a sprite with momentum-based movement and can fire a missile in any of 8 directions, with a title screen and a runnable ROM produced via DASM. Acts as a controls and build-pipeline proof of concept rather than a full game.",
+      "Goals": "G1 -- Produce a 4KB NTSC ROM `build/ataritest.bin` built via DASM. G2 -- TEST GAME title screen on power-on; transition to gameplay on either fire button. G3 -- Taskfile-driven single-command build. G4 -- Manual smoke-test verification in Stella on macOS. Non-goals (v1): sound, score/HUD, lives, levels, AI opponents, game-over, save state, PAL, bankswitching, ROM > 4KB, scoring/respawn on hit.",
+      "UserStories": "US1 Move sprite via joystick with momentum. US2 Fire missile in joystick direction (8-way). US3 Edge-triggered fire (no auto-fire on hold). US4 See TEST GAME title on power-on. US5 Either fire button starts the game. US6 Build ROM with one command. US7 Run ROM in Stella on macOS.",
+      "Requirements": "Functional: FR-1 Title screen with PF \"TEST GAME\" on reset. FR-2 Either fire button transitions title -> play. FR-3 Title does not transition on direction-only input. FR-4 Each joystick maps to one sprite. FR-5 Held direction accelerates sprite to MAX_SPEED. FR-6 Released direction applies FRICTION toward 0. FR-7 Sprites clamp to NTSC playfield bounds. FR-8 Players differ by COLOR ONLY. FR-9 At most one active missile per player. FR-10 Edge-triggered fire only. FR-11 No fire when joystick is centered. FR-12 8-way missile direction. FR-13 Missile is a 1-pixel TIA missile. FR-14 Missile despawns at edge. FR-15 Hit on opponent triggers brief flash; play continues; missile consumed. FR-16 No score/lives/reset on hit. FR-17 `task build` invokes DASM. FR-18 Output is `build/ataritest.bin`. FR-19 4KB single-bank, no bankswitching. Non-functional: NFR-1 NTSC 60Hz stable (262 LN). NFR-2 Loads/runs in latest stable Stella on macOS. NFR-3 ROM <= 4KB. NFR-4 Reproducible byte-identical builds for fixed DASM version. NFR-5 macOS DASM install steps documented. NFR-6 Source organized by concern with subroutine comments.",
+      "EdgeCases": "Diagonal input + fire: missile uses 8-way snapped direction. Joystick centered + fire pressed: no missile. Fire held: only first edge fires; subsequent presses require release. Sprite at boundary + accelerating outward: velocity clamped, position clamped. Missile collides with both opponent sprite and edge in same frame: collision wins (flash + despawn). Both players fire same frame: both missiles spawn independently. Missile spawned at sprite center; edge despawn after position update. Flash counter active when struck again: refresh counter (do not stack).",
+      "TechDecisions": "D-1 4KB no bankswitching. D-2 Hit -> brief flash, play continues. D-3 1 missile/player. D-4 Acceleration + friction + max-speed cap (fixed-point Q8.8 per axis). D-5 8-way fire direction. D-6 Edge despawn for missiles. D-7 NTSC-first (60Hz). D-8 Edge-triggered firing. D-9 Color-only player differentiation. D-10 DASM via `task build` -> `build/ataritest.bin`. D-11 Stella manual smoke test on macOS. D-12 Out-of-scope: sound, score/HUD, levels, AI, game-over, save state.",
+      "PreImplementationGates": "Toolchain: DASM installed and on PATH (`dasm -v`). Stella installed on macOS for verification. `task` (go-task) available. Project Taskfile.yml created with `build` target. Git repository initialized. PRD.md approved (DONE). specification.vbrief.json status flipped to `approved` before SPECIFICATION.md is rendered.",
+      "SuccessMetrics": "SM-1 `task build` produces `build/ataritest.bin` exactly 4096 bytes. SM-2 ROM shows stable TEST GAME title in Stella at 60Hz. SM-3 Either fire transitions to play reliably. SM-4 Each joystick independently moves sprite with visible accel/friction; sprites stay on-screen. SM-5 8-way missile firing, 1 active per player, despawns at edge. SM-6 Hit on opponent triggers visible flash; play continues. SM-7 All 12 locked decisions reflected in implementation."
+    },
+    "items": [
+      {
+        "id": "P1",
+        "title": "Foundation: toolchain + repo skeleton",
+        "status": "proposed",
+        "narrative": {
+          "Description": "Establish DASM toolchain on macOS, project directory layout, Taskfile, and a minimal kernel that boots in Stella with a black screen.",
+          "Traces": "FR-17, FR-18, FR-19, NFR-1, NFR-2, NFR-5"
+        },
+        "items": [
+          {
+            "id": "P1.T1",
+            "title": "Install and document DASM on macOS",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Document DASM install (Homebrew preferred) in README.md or PROJECT.md; verify `dasm -v` runs.",
+              "Acceptance": "DASM is installed; `dasm -v` prints a version; install steps in repo docs."
+            },
+            "metadata": {"dependencies": []}
+          },
+          {
+            "id": "P1.T2",
+            "title": "Create project layout (src/, build/, include/)",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Create src/ with placeholder main.s, include/ for vcs.h/macro.h headers, build/ as DASM output dir, .gitignore for build/.",
+              "Acceptance": "Directory tree exists; src/main.s assembles to a 4KB binary even if it only does VSYNC/VBLANK."
+            },
+            "metadata": {"dependencies": ["P1.T1"]}
+          },
+          {
+            "id": "P1.T3",
+            "title": "Add Taskfile.yml with `build` target",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Project-root Taskfile.yml with `build` task that invokes DASM (`dasm src/main.s -f3 -obuild/ataritest.bin -lbuild/ataritest.lst -sbuild/ataritest.sym`), plus `clean` and `run` (Stella) helpers.",
+              "Acceptance": "`task build` produces `build/ataritest.bin` (any size) without error; `task clean` removes build/."
+            },
+            "metadata": {"dependencies": ["P1.T2"]}
+          },
+          {
+            "id": "P1.T4",
+            "title": "Boot a black screen in Stella",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Implement minimal kernel: VSYNC, VBLANK (37 LN), 192 LN visible (all background color), 30 LN overscan; reset/NMI/IRQ vectors at $FFFC.",
+              "Acceptance": "Loading build/ataritest.bin in Stella shows a stable black NTSC frame, no rolling, ROM exactly 4096 bytes."
+            },
+            "metadata": {"dependencies": ["P1.T3"]}
+          }
+        ]
+      },
+      {
+        "id": "P2",
+        "title": "Title screen",
+        "status": "proposed",
+        "narrative": {
+          "Description": "Render TEST GAME via playfield registers and add a TITLE -> PLAY state transition gated on either fire button.",
+          "Traces": "FR-1, FR-2, FR-3, NFR-1"
+        },
+        "items": [
+          {
+            "id": "P2.T1",
+            "title": "Define GameState and frame loop branching",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Add GameState zero-page byte (TITLE=0, PLAY=1). VBLANK reads INPT4/INPT5 and transitions to PLAY on edge-press of either. Visible kernel branches on GameState.",
+              "Acceptance": "ROM still boots; pressing fire on either joystick changes GameState (verify in Stella debugger)."
+            },
+            "metadata": {"dependencies": ["P1.T4"]}
+          },
+          {
+            "id": "P2.T2",
+            "title": "Render TEST GAME with PF0/PF1/PF2",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Build per-line PF data tables for letters T E S T (space) G A M E using mirrored playfield. PF color = PFCOLOR_TITLE; background dark.",
+              "Acceptance": "Stella shows centered, readable TEST GAME on title screen at 60Hz with no rolling."
+            },
+            "metadata": {"dependencies": ["P2.T1"]}
+          }
+        ]
+      },
+      {
+        "id": "P3",
+        "title": "Player sprites and movement",
+        "status": "proposed",
+        "narrative": {
+          "Description": "Render two color-distinct sprites and implement acceleration/friction/clamping movement model driven by SWCHA.",
+          "Traces": "FR-4, FR-5, FR-6, FR-7, FR-8, NFR-1"
+        },
+        "items": [
+          {
+            "id": "P3.T1",
+            "title": "Sprite shape + dual-sprite kernel (color-only differentiation)",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Define an 8x8 (or 8x16) sprite bitmap used for both players. 2-line kernel sets HMP0/HMP1 fine positions, GRP0/GRP1 patterns, COLUP0/COLUP1 colors.",
+              "Acceptance": "Both sprites render simultaneously in PLAY state, stable, with distinct colors and identical shape."
+            },
+            "metadata": {"dependencies": ["P2.T2"]}
+          },
+          {
+            "id": "P3.T2",
+            "title": "Joystick read + acceleration/friction model",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Read SWCHA: bits 7-4 P0 (right,left,down,up active-low), 3-0 P1. Apply ACCEL on held axis, FRICTION on released axis, clamp |V|<=MAX_SPEED. Use Q8.8 fixed point.",
+              "Acceptance": "Each sprite accelerates smoothly when joystick is held and decelerates to a stop when released; speed visibly capped."
+            },
+            "metadata": {"dependencies": ["P3.T1"]}
+          },
+          {
+            "id": "P3.T3",
+            "title": "Screen-bound clamping",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Clamp X to PLAYFIELD_LEFT..PLAYFIELD_RIGHT and Y to PLAYFIELD_TOP..PLAYFIELD_BOTTOM after position update. Zero outward velocity at boundary.",
+              "Acceptance": "Sprites cannot leave the visible playfield in any direction; no jitter or wrap-around."
+            },
+            "metadata": {"dependencies": ["P3.T2"]}
+          }
+        ]
+      },
+      {
+        "id": "P4",
+        "title": "Missiles (8-way fire, edge-trigger, edge despawn)",
+        "status": "proposed",
+        "narrative": {
+          "Description": "Implement per-player single-active missile, fired only on fire-button press edges with non-neutral joystick, traveling in 8-way direction, despawning at screen edge.",
+          "Traces": "FR-9, FR-10, FR-11, FR-12, FR-13, FR-14"
+        },
+        "items": [
+          {
+            "id": "P4.T1",
+            "title": "Edge-detect fire input",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Maintain prior-frame fire-pressed bits per player; fire 'edge' = pressed-now AND not-pressed-prev.",
+              "Acceptance": "Holding fire produces only one edge per press; debug counter ticks once per press in Stella."
+            },
+            "metadata": {"dependencies": ["P3.T3"]}
+          },
+          {
+            "id": "P4.T2",
+            "title": "Spawn missile in 8-way joystick direction",
+            "status": "proposed",
+            "narrative": {
+              "Description": "On fire edge, if joystick non-neutral and missile not active, set Mx/My to player center, set DX/DY in {-MISSILE_SPEED, 0, +MISSILE_SPEED} from joystick state, set MxActive=1.",
+              "Acceptance": "All 8 joystick directions produce a missile in that direction; centered joystick + fire produces no missile; only 1 active per player."
+            },
+            "metadata": {"dependencies": ["P4.T1"]}
+          },
+          {
+            "id": "P4.T3",
+            "title": "Render missile as a single dot and update each frame",
+            "status": "proposed",
+            "narrative": {
+              "Description": "ENAM0/ENAM1=1 when active; NUSIZx missile width=1; per-frame Mx/My += DX/DY; positional update via HMM0/HMM1 fine motion.",
+              "Acceptance": "Each player can fire a single-pixel missile that travels visibly in the chosen direction."
+            },
+            "metadata": {"dependencies": ["P4.T2"]}
+          },
+          {
+            "id": "P4.T4",
+            "title": "Edge despawn",
+            "status": "proposed",
+            "narrative": {
+              "Description": "When MxX or MxY crosses playfield bounds, set MxActive=0 and ENAMx=0.",
+              "Acceptance": "Missiles disappear cleanly at screen edges; new missile can be fired immediately after."
+            },
+            "metadata": {"dependencies": ["P4.T3"]}
+          }
+        ]
+      },
+      {
+        "id": "P5",
+        "title": "Player-vs-player hit flash",
+        "status": "proposed",
+        "narrative": {
+          "Description": "Detect M0-vs-P1 and M1-vs-P0 collisions; trigger brief color flash on the hit player; consume the missile; do NOT modify score/lives/state.",
+          "Traces": "FR-15, FR-16"
+        },
+        "items": [
+          {
+            "id": "P5.T1",
+            "title": "Read CXM0P/CXM1P collision latches",
+            "status": "proposed",
+            "narrative": {
+              "Description": "In overscan, read CXM0P (bit 7 = M0 vs P1) and CXM1P (bit 7 = M1 vs P0). CXCLR at end of frame.",
+              "Acceptance": "Debug output / breakpoint shows the relevant bit set on contact between missile and opposing player sprite."
+            },
+            "metadata": {"dependencies": ["P4.T4"]}
+          },
+          {
+            "id": "P5.T2",
+            "title": "Apply hit flash and missile consumption",
+            "status": "proposed",
+            "narrative": {
+              "Description": "On hit, set hit player's PxFlashCount=FLASH_FRAMES and clear MxActive/ENAMx. While PxFlashCount>0, override COLUPx=FLASH_COLOR and decrement once per frame.",
+              "Acceptance": "Striking opposite player produces visible brief flash; play continues; missile is consumed; no score/state changes."
+            },
+            "metadata": {"dependencies": ["P5.T1"]}
+          }
+        ]
+      },
+      {
+        "id": "P6",
+        "title": "Polish, build verification, smoke test",
+        "status": "proposed",
+        "narrative": {
+          "Description": "Verify ROM size, byte-reproducibility, NTSC stability, and document smoke-test checklist.",
+          "Traces": "NFR-1, NFR-2, NFR-3, NFR-4, NFR-6, SM-1..SM-7"
+        },
+        "items": [
+          {
+            "id": "P6.T1",
+            "title": "Reproducible 4KB build",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Confirm `task build` produces exactly 4096-byte ROM with deterministic hash on a pinned DASM; document DASM version.",
+              "Acceptance": "`stat -f %z build/ataritest.bin` = 4096; two consecutive `task clean && task build` produce identical SHA-256."
+            },
+            "metadata": {"dependencies": ["P5.T2"]}
+          },
+          {
+            "id": "P6.T2",
+            "title": "NTSC stability and Stella smoke test checklist",
+            "status": "proposed",
+            "narrative": {
+              "Description": "Document smoke-test steps in README: open Stella -> load ROM -> verify TEST GAME title -> fire from each joystick -> move both sprites -> fire missiles in all 8 directions -> hit flash -> verify no rolling.",
+              "Acceptance": "Checklist passes manually; SM-2..SM-7 all observed; capture screenshots in docs/."
+            },
+            "metadata": {"dependencies": ["P6.T1"]}
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {"from": "P1", "to": "P2", "type": "blocks"},
+      {"from": "P2", "to": "P3", "type": "blocks"},
+      {"from": "P3", "to": "P4", "type": "blocks"},
+      {"from": "P4", "to": "P5", "type": "blocks"},
+      {"from": "P5", "to": "P6", "type": "blocks"}
+    ],
+    "metadata": {
+      "strategy": "interview",
+      "sizing": "Full",
+      "sourcePRD": "PRD.md",
+      "sourceVBrief": "vbrief/proposed/2026-04-29-ataritest.vbrief.json",
+      "decisions": {
+        "D1": "4KB ROM, no bankswitching",
+        "D2": "Player-on-player hit: brief flash, play continues",
+        "D3": "1 active missile per player",
+        "D4": "Acceleration + friction + max speed cap",
+        "D5": "8-way missile direction (joystick at fire time)",
+        "D6": "Missile despawn at edge",
+        "D7": "NTSC-first (60Hz)",
+        "D8": "Edge-triggered fire",
+        "D9": "Color-only player differentiation",
+        "D10": "DASM via `task build` -> build/ataritest.bin",
+        "D11": "Stella manual smoke test on macOS",
+        "D12": "Out-of-scope (v1): sound, score/HUD, levels, AI, game-over, save state"
+      }
+    }
+  }
+}
