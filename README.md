@@ -1,4 +1,4 @@
-# AtariTest
+# Bit War!  For the Atari 2600
 
 A 4KB NTSC Atari 2600 demo ROM written in 6502 assembly and built with DASM.
 Two joysticks each control a sprite (acceleration + friction movement) and can
