@@ -46,80 +46,92 @@ P0Curr      equ $8F   ; pre-computed GRP0 byte for next scanline
 P1Curr      equ $90   ; pre-computed GRP1 byte for next scanline
 
 ; Missile state.  bit 7 of MxActive set => active.
-M0Active    equ $91
-M0X         equ $92
-M0Y         equ $93
-M0DX        equ $94   ; signed: -MISSILE_SPEED, 0, +MISSILE_SPEED
-M0DY        equ $95
-M0RowState  equ $96   ; init = (1-M0Y) when active, else 0 (never enables)
-M0Curr      equ $97   ; precomputed ENAM0 byte for next scanline ($00 or $02)
-M1Active    equ $98
-M1X         equ $99
-M1Y         equ $9A
-M1DX        equ $9B
-M1DY        equ $9C
-M1RowState  equ $9D
-M1Curr      equ $9E
+; M0 and M1 are laid out as two contiguous 12-byte blocks so a single
+; subroutine can service both via lda M0Active,X (X=0 for M0, X=MIS_OFFSET
+; for M1).  All per-missile variables are at the same relative offset.
+MIS_OFFSET  equ 12    ; M1 block = M0 block + 12
+; --- M0 block ($91..$9C) ---
+M0Active    equ $91   ; +0  bit 7 set => active
+M0X         equ $92   ; +1
+M0Y         equ $93   ; +2
+M0DX        equ $94   ; +3  signed: -MISSILE_SPEED, 0, +MISSILE_SPEED
+M0DY        equ $95   ; +4
+M0RowState  equ $96   ; +5  init = (1-M0Y) when active, else 0
+M0Curr      equ $97   ; +6  precomputed ENAM0 byte ($00 or $02)
+M0XPrev     equ $98   ; +7
+M0YPrev     equ $99   ; +8
+M0XPrev2    equ $9A   ; +9
+M0YPrev2    equ $9B   ; +10
+M0Life      equ $9C   ; +11 frames remaining before auto-despawn
+; --- M1 block ($9D..$A8) ---
+M1Active    equ $9D   ; +0
+M1X         equ $9E   ; +1
+M1Y         equ $9F   ; +2
+M1DX        equ $A0   ; +3
+M1DY        equ $A1   ; +4
+M1RowState  equ $A2   ; +5
+M1Curr      equ $A3   ; +6
+M1XPrev     equ $A4   ; +7
+M1YPrev     equ $A5   ; +8
+M1XPrev2    equ $A6   ; +9
+M1YPrev2    equ $A7   ; +10
+M1Life      equ $A8   ; +11
 
-P0FlashCount equ $9F  ; frames remaining of P0 hit-flash (0 = no flash)
-P1FlashCount equ $A0
-FireSoundCount equ $A1 ; frames remaining of fire sound on AUDC0
-HitSoundCount  equ $A2 ; frames remaining of hit sound on AUDC1
-BounceCool     equ $A3 ; frames remaining where joystick input is ignored
+P0FlashCount equ $A9  ; frames remaining of P0 hit-flash (0 = no flash)
+P1FlashCount equ $AA
+FireSoundCount equ $AB ; frames remaining of fire sound on AUDC0
+HitSoundCount  equ $AC ; frames remaining of hit sound on AUDC1
+BounceCool     equ $AD ; frames remaining where joystick input is ignored
                        ; after a P0-P1 bounce, so the negated velocity has
                        ; time to actually separate the sprites.
 
 ; v3 state
-P0Score      equ $A4   ; 0..8
-P1Score      equ $A5
-RoundTimer   equ $A6   ; ROUND_OVER pause counter (frames)
-AIFlags      equ $A7   ; bit 7 set = P0 is AI; bit 6 set = P1 is AI
-FrameCounter equ $A8   ; increments every frame; LSB used for difficulty gate
-P0DigitBase  equ $A9   ; precomputed P0Score * 8 (offset into DigitGfx)
-P1DigitBase  equ $AA   ; precomputed P1Score * 8
-AIFireCool   equ $AB   ; per-frame countdown until next AI fire attempt
-GameOverWin  equ $AC   ; 0 = P0 wins, 1 = P1 wins (only valid in GAME_OVER)
-SynthSWCHA   equ $AD   ; SWCHA copy with AI players' bits overridden
-TempSpeed    equ $AE   ; scratch byte for collision-slowdown speed compare
-TempScratch  equ $AF   ; general scratch byte (e.g. second speed sum)
-SpriteCache  equ $B0   ; 8-byte sprite-row cache ($B0..$B7); SpriteGfx or
-AIRand       equ $B8   ; LCG-driven pseudo-random byte; gates AI movement
+P0Score      equ $AE   ; 0..8
+P1Score      equ $AF
+RoundTimer   equ $B0   ; ROUND_OVER pause counter (frames)
+AIFlags      equ $B1   ; bit 7 set = P0 is AI; bit 6 set = P1 is AI
+FrameCounter equ $B2   ; increments every frame; LSB used for difficulty gate
+P0DigitBase  equ $B3   ; precomputed P0Score * 8 (offset into DigitGfx)
+P1DigitBase  equ $B4   ; precomputed P1Score * 8
+AIFireCool   equ $B5   ; per-frame countdown until next AI fire attempt
+GameOverWin  equ $B6   ; 0 = P0 wins, 1 = P1 wins (only valid in GAME_OVER)
+SynthSWCHA   equ $B7   ; SWCHA copy with AI players' bits overridden
+SpriteCache  equ $B8   ; 8-byte sprite-row cache ($B8..$BF)
+AIRand       equ $C0   ; LCG-driven pseudo-random byte; gates AI movement
 
 ; Pre-update positions, used to revert on wall collisions.
 ; Prev = position one frame ago, Prev2 = position two frames ago.
 ; Wall hit reverts to Prev2 (Prev is itself often inside the wall).
-P0XPrev      equ $B9
-P0YPrev      equ $BA
-P1XPrev      equ $BB
-P1YPrev      equ $BC
-M0XPrev      equ $BD
-M0YPrev      equ $BE
-M1XPrev      equ $BF
-M1YPrev      equ $C0
-P0XPrev2     equ $C1
-P0YPrev2     equ $C2
-P1XPrev2     equ $C3
-P1YPrev2     equ $C4
-M0XPrev2     equ $C5
-M0YPrev2     equ $C6
-M1XPrev2     equ $C7
-M1YPrev2     equ $C8
-M0Life       equ $C9   ; frames remaining before missile auto-despawns
-M1Life       equ $CA
-                       ; SpriteHollow is copied here each frame in VBLANK.
+P0XPrev      equ $C1
+P0YPrev      equ $C2
+P1XPrev      equ $C3
+P1YPrev      equ $C4
+P0XPrev2     equ $C5
+P0YPrev2     equ $C6
+P1XPrev2     equ $C7
+P1YPrev2     equ $C8
+TempSpeed    equ $C9   ; scratch byte for collision-slowdown speed compare
+TempScratch  equ $CA   ; general scratch byte (e.g. second speed sum)
 
-; Randomized wall geometry / appearance, refreshed each round in
-; RandomizeWalls. WallA is in the upper play area, WallB in the lower.
-; *Start values are play-kernel iter counters (X downcounts 86..1) at
-; which PF1 is loaded with the corresponding *PF byte; *End values are
-; the iter counter at which PF1 is cleared back to 0.
-WallAStart   equ $CB
-WallAEnd     equ $CC
-WallBStart   equ $CD
-WallBEnd     equ $CE
-WallAPF      equ $CF
-WallBPF      equ $D0
-WallColor    equ $D1
+; Stored-layout playfield renderer state, refreshed each round in
+; LoadLayout.  The play kernel walks a list of "bands" in ROM, where
+; each band is (start_iter, PF1, PF2) = 3 bytes.  PF0 is always $00
+; (every stored layout keeps the leftmost 16 pixels clear so the spawn
+; columns stay safe) and is written once in the kernel preamble.
+; On every iter, X (downcounting 86..1) is compared against
+; NextBandIter; on match, the band's PF1/PF2 pair is written and the
+; pointer advances to the next band.  The list ends with a sentinel
+; start_iter=0 that X (1..86) never matches, so PF stays stable after
+; the last real band.  The full PlayfieldLayouts table is aligned
+; into a single 256-byte ROM page so BandPtrL never carries during
+; the kernel walk and we can omit the bcc/inc BandPtrH handling.
+BandPtrL     equ $CB   ; lo byte of (BandPtr) -> current band
+BandPtrH     equ $CC   ; hi byte of (BandPtr)
+NextBandIter equ $CD   ; iter at which the band check fires next
+LayoutIndex  equ $CE   ; index into PlayfieldLayouts (cycles per round)
+MxJoyVal     equ $CF   ; scratch: shifted joystick for missile spawn
+             ; $D0 reserved
+WallColor    equ $D1   ; randomized COLUPF for each round (kept)
 
 ; Game-select state (controlled by SWCHB Select switch on the TITLE screen).
 ;   GameVariant = 1  -> single-player vs AI; whichever stick fires first is human.
@@ -139,20 +151,74 @@ P0CurrentColor equ $D4
 P1CurrentColor equ $D5
 
 ; Pickup state.  PickupActive bit 7 set => the pickup is currently visible
-; on the play field as a +/x ball; either player overlapping it (CXP0FB /
-; CXP1FB bit 6) consumes it.  When invisible, PickupTimer counts down
-; frames until the next spawn (random 5..9.25 seconds).  PickupCtrlPF
-; caches the CTRLPF byte for the play kernel preamble (mirror bit + ball
-; size bits, where size animates between 2px and 8px every ~0.5s so the
-; pickup pulses between an 'x'-like dot and a '+'-like wide block).
+; on the play field; either player overlapping it (CXP0FB / CXP1FB bit 6)
+; consumes it.  When invisible, PickupTimer counts down frames until the
+; next spawn (random 5..9.25 seconds).
+;
+; The pickup's visible silhouette is a '+' built by *flicker compositing*
+; the TIA ball between two configurations on alternating frames (30Hz):
+;   - Frame A (FrameCounter bit 0 = 0): 8px-wide x 2-scanline horizontal
+;     stripe at the pickup's vertical midline.  CTRLPF=$31.
+;   - Frame B (bit 0 = 1): 2px-wide x 10-scanline vertical column over
+;     the full pickup band.  CTRLPF=$11.
+; Both shapes share the same vertical centre, so the retinal composite
+; reads as a '+' silhouette.  The per-frame configuration is encoded in
+; PickupCtrlPF (CTRLPF byte) and the existing PickupStartIter /
+; PickupEndIter cpx targets in the kernel — no per-iter kernel writes,
+; no extra walker, no cycle pressure on the band walker.  All four ZP
+; bytes are recomputed each frame in the pickup VBLANK block from the
+; stable PickupY base.
 PickupActive   equ $D6
 PickupX        equ $D7
 PickupY        equ $D8
 PickupTimer    equ $D9   ; lo byte of frames-until-respawn
 PickupTimerHi  equ $DA   ; hi byte of frames-until-respawn
-PickupStartIter equ $DB  ; iter-counter X value where ENABL turns on
-PickupEndIter   equ $DC  ; iter-counter X value where ENABL turns off
-PickupCtrlPF    equ $DD  ; CTRLPF for the play kernel ($01 | ball-size bits)
+PickupStartIter equ $DB  ; iter-counter X value where ENABL turns on  (per-frame)
+PickupEndIter   equ $DC  ; iter-counter X value where ENABL turns off (per-frame)
+PickupCtrlPF    equ $DD  ; CTRLPF for the play kernel preamble (mirror + ball size)
+
+; AI fire telegraph counter.  When AIFireCool expires, instead of firing
+; immediately the AI starts AIFireTelegraph counting down for ~0.4s.
+; During the telegraph the firing AI's sprite flashes white so the
+; opposing player has time to dodge.  When the telegraph hits 0 the
+; missile is spawned with aim locked strictly toward the opponent's
+; current position (ignoring random-skip / deadzone gates).
+AIFireTelegraph equ $DE
+
+; AI wall-stuck recovery state.  When an AI player's wall-revert fires
+; (player ran into a playfield block while chasing the opponent), the
+; AI enters a "creep" mode for AI_STUCK_FRAMES frames where its joystick
+; bits in SynthSWCHA are forcibly overridden to a single direction press.
+;
+; Direction selection cycles deterministically through {up, right, down,
+; left} via AIStuckDirIdx, advanced on every wall-hit.  This guarantees
+; that within four wall bumps the AI has TRIED EVERY perpendicular and
+; parallel direction, so even when one direction is also blocked the AI
+; rotates to a different side instead of repeatedly picking the same
+; bad direction at random.  AIStuckMask is AND'ed and AIStuckOR is OR'ed
+; onto SynthSWCHA each frame the timer is non-zero (mask preserves the
+; human player's bits; OR injects the chosen creep direction).
+AIStuckTimer  equ $DF
+AIStuckMask   equ $E0
+AIStuckOR     equ $E1
+AIStuckDirIdx equ $E2  ; 0..3 = up,right,down,left
+
+; Sound engine per-channel state.  Each channel has a frame counter,
+; current freq/vol, and per-frame deltas for sweeps/envelopes.
+Snd0Count   equ $E3   ; frames remaining (0 = silent)
+Snd0Freq    equ $E4   ; current AUDF value
+Snd0FreqDt  equ $E5   ; signed AUDF delta per frame
+Snd0Vol     equ $E6   ; current AUDV value
+Snd0VolDt   equ $E7   ; AUDV decrement per frame (unsigned, subtracted)
+Snd1Count   equ $E8
+Snd1Freq    equ $E9
+Snd1FreqDt  equ $EA
+Snd1Vol     equ $EB
+Snd1VolDt   equ $EC
+
+; Title melody sequencer state.
+MelodyIdx   equ $ED   ; byte offset into TitleMelody (advances by 2 per note)
+MelodyTimer equ $EE   ; frames remaining on current note (0 = advance)
 
 ;---------------------------------------------------------------
 ; Constants
@@ -176,36 +242,25 @@ WIN_SCORE     equ 8         ; first to 8 wins (best of 15)
 ROUND_PAUSE   equ 60        ; ~1s pause after a successful hit
 GAME_OVER_DURATION equ 240  ; ~4s celebration window before auto-return to TITLE
 VARIANT_DIGIT_COLOR equ $4E ; bright red so the variant digit contrasts with the white title
+NUM_LAYOUTS   equ 5        ; count of entries in PlayfieldLayouts (cycled per round)
 AI_FIRE_PERIOD equ 90       ; AI tries to fire every ~1.5s
+AI_FIRE_TELEGRAPH equ 24    ; ~0.4s telegraph window between decision and shot
+AI_STUCK_FRAMES equ 36      ; ~0.6s of creep after AI hits a wall (clears most
+                            ; layout block heights at the 2px/frame MAX_SPEED)
 SCORE_BAND    equ 16        ; physical scanlines reserved at top for score
 SCORE_P0_X    equ 36        ; pixel X of P0 score digit on score band
 SCORE_P1_X    equ 108       ; pixel X of P1 score digit on score band
 SCORE_DIGIT_TOP equ 5       ; first scoreband line where digit appears (1..8)
 
-; Audio settings.
-;   AUDC values (TIA waveforms): 4=pure square tone, 6=square low octave,
-;                                8=white noise.
-;   AUDF: divisor (higher = lower pitch).
-;   AUDV: volume 0..15.
-FIRE_DURATION equ 5   ; frames the fire sound plays
-FIRE_AUDC     equ 6   ; low-octave square wave
-FIRE_AUDF     equ 22  ; low pitch
-FIRE_AUDV     equ 10
-HIT_DURATION  equ 8   ; frames the hit sound plays
-HIT_AUDC      equ 8   ; white noise
-HIT_AUDF      equ 5   ; high-pitched noise
-HIT_AUDV      equ 12
-BOUNCE_SOUND_DURATION equ 10  ; ~167ms boing on player-vs-player collision
-BOUNCE_AUDC   equ 1   ; poly4 buzzer (timbre distinct from fire + hit)
-BOUNCE_AUDF   equ 8   ; mid-low pitch
-BOUNCE_AUDV   equ 12
+; Sound definition table offsets (index into SndDefs, 6 bytes each).
+SND_FIRE      equ 0    ; ch0: descending laser sweep
+SND_HIT       equ 6    ; ch1: white-noise explosion decay
+SND_BOUNCE    equ 12   ; ch1: ascending boing
+SND_PICKUP_HI equ 18   ; ch1: gain chime (ascending sweep)
+SND_PICKUP_LO equ 24   ; ch1: loss bonk  (descending sweep)
+SND_TELEPORT  equ 30   ; ch0: rapid descending poly4 sweep (Combat-style)
 
 PICKUP_HEIGHT equ 5    ; iters (10 scanlines tall)
-PICKUP_SOUND_DURATION equ 12  ; ~200ms tone
-PICKUP_AUDC   equ 4    ; pure square (distinct from fire / hit / boing)
-PICKUP_AUDF_HI equ 4   ; high pitch -> +1 'gain' chime
-PICKUP_AUDF_LO equ 24  ; low pitch  -> -1 'loss' bonk
-PICKUP_AUDV   equ 14
 
 MAX_SPEED     equ 2   ; player pixels/frame (integer)
 MISSILE_SPEED equ 4   ; missile pixels/frame on each held axis
@@ -272,6 +327,13 @@ ClearLoop:
         sta GameVariant
         lda #$02
         sta SelectPrev
+
+        ; First gameplay screen always uses stored layout 0.  Each round
+        ; transition (and each new game) refreshes this; explicit init
+        ; here covers the very first frame in case any pre-title code
+        ; reads it.
+        lda #0
+        sta LayoutIndex
 
 ;---------------------------------------------------------------
 ; Main frame loop — NTSC: 3 VSYNC + 37 VBLANK + 192 visible + 30 overscan
@@ -365,7 +427,7 @@ NoSelectEdge:
         lda P0FireEdge
         ora P1FireEdge
         bmi DoTitleStart        ; bit 7 set => press edge present (long-form)
-        jmp RunSoundDecay
+        jmp TitleMelodyTick     ; run melody sequencer, then sound engine
 DoTitleStart:
         ; AI assignment depends on the chosen game variant:
         ;   Game 1 (single player): whichever stick fired the title becomes
@@ -400,9 +462,20 @@ StartReset:
         sta BounceCool
         sta RoundTimer
         sta PickupActive         ; pickup hidden until the first timer expiry
+        sta LayoutIndex          ; first gameplay screen always uses stored layout 0
+        sta AIFireTelegraph      ; ensure no stale telegraph carries over
+        sta AIStuckTimer         ; clear any stale wall-creep state
+        lda AIRand               ; seed direction index with current entropy
+        and #$03
+        sta AIStuckDirIdx
+        lda #AI_FIRE_PERIOD
+        sta AIFireCool           ; full cooldown before first AI shot
+        lda #0
         jsr ResetPickupTimer     ; seed initial 5..9.25s spawn delay
-        jsr RandomizeWalls       ; pick wall layout for the first round
+        jsr LoadLayout           ; point band ptr at the active stored layout
         jsr SpawnPlayers         ; place players safely off the walls
+        lda #0
+        sta Snd0Count           ; stop melody so engine mutes ch0
         lda #ST_PLAY
         sta GameState
         jmp RunSoundDecay
@@ -452,7 +525,11 @@ GODoReset:
         sta M0Active
         sta M1Active
         sta PickupActive        ; clear pickup so the next game spawns fresh
+        sta AIFireTelegraph     ; clear any pending telegraph
         sta GameState           ; A=0 = ST_TITLE
+        sta MelodyIdx           ; restart title melody from beginning
+        sta MelodyTimer
+        sta AUDV0               ; mute ch0 so melody starts clean
         jmp RunSoundDecay
 
 InRoundOver:
@@ -466,7 +543,17 @@ InRoundOver:
         sta P0FlashCount
         sta P1FlashCount
         sta BounceCool
-        jsr RandomizeWalls       ; new wall layout for the next round
+        ; Advance to next stored layout for the upcoming round; wrap at
+        ; NUM_LAYOUTS so the iteration cycles indefinitely.
+        lda LayoutIndex
+        clc
+        adc #1
+        cmp #NUM_LAYOUTS
+        bcc ROKeepIdx
+        lda #0
+ROKeepIdx:
+        sta LayoutIndex
+        jsr LoadLayout           ; point band ptr at the new layout
         jsr SpawnPlayers         ; place players safely off the walls
         lda #ST_PLAY
         sta GameState
@@ -608,27 +695,73 @@ P1AINegDy:
         sta SynthSWCHA
 SynthSWCHADone:
 
-        ; --- AI fire logic: every AI_FIRE_PERIOD frames, force a fire-edge
-        ; for each AI player whose missile is not already active. ---
-        lda AIFireCool
-        beq AIFireReady
-        dec AIFireCool
-        jmp AIFireDone
-AIFireReady:
+        ; --- AI wall-stuck creep override ---
+        ; If an AI player is in stuck-recovery (AIStuckTimer > 0), replace
+        ; that player's SynthSWCHA bits with the saved perpendicular-creep
+        ; direction so it slides along the wall instead of re-pressing the
+        ; blocked toward-opponent direction.  Decrements the timer each
+        ; frame; once it expires the normal toward-opponent logic above is
+        ; back in charge.
+        lda AIStuckTimer
+        beq AIStuckOverrideDone
+        dec AIStuckTimer
+        lda SynthSWCHA
+        and AIStuckMask
+        ora AIStuckOR
+        sta SynthSWCHA
+AIStuckOverrideDone:
+
+        ; --- AI fire logic with telegraph + aim lock ---
+        ; Sequence (per AI player, shared timers):
+        ;   1. AIFireCool counts down between shots (AI_FIRE_PERIOD frames).
+        ;   2. When AIFireCool hits 0, AIFireTelegraph is seeded with
+        ;      AI_FIRE_TELEGRAPH (~0.4s) and AIFireCool restarts.  During
+        ;      the telegraph the firing AI's sprite flashes (ApplyPxColor)
+        ;      so the opponent can react.
+        ;   3. When AIFireTelegraph hits 0, the missile is spawned with
+        ;      its joystick state forcibly aimed at the opponent's CURRENT
+        ;      position, bypassing the random-skip / deadzone gates that
+        ;      sometimes leave the joystick neutral and waste shots.
+        lda AIFireTelegraph
+        beq AIFireNoTele
+        dec AIFireTelegraph
+        bne AIFireDone           ; still telegraphing
+        ; Telegraph just hit 0 -> fire with aim lock
         bit AIFlags
-        bpl P1AIFire            ; P0 not AI
+        bpl AIFireTeleP1
         lda M0Active
-        bmi P1AIFire            ; P0 missile already active
-        lda #$80
-        sta P0FireEdge
-P1AIFire:
+        bmi AIFireTeleP1         ; missile busy, skip
+        jsr LockP0AimAndFire
+AIFireTeleP1:
         lda AIFlags
         and #$40
-        beq AIFireResetCool     ; P1 not AI
+        beq AIFireDone
+        lda M1Active
+        bmi AIFireDone
+        jsr LockP1AimAndFire
+        jmp AIFireDone
+AIFireNoTele:
+        lda AIFireCool
+        beq AIFireCoolReady
+        dec AIFireCool
+        jmp AIFireDone
+AIFireCoolReady:
+        ; Cooldown expired - start telegraph if any AI has a free missile
+        bit AIFlags
+        bpl AIFireCoolP1Test
+        lda M0Active
+        bmi AIFireCoolP1Test
+        lda #AI_FIRE_TELEGRAPH
+        sta AIFireTelegraph
+        jmp AIFireResetCool
+AIFireCoolP1Test:
+        lda AIFlags
+        and #$40
+        beq AIFireResetCool
         lda M1Active
         bmi AIFireResetCool
-        lda #$80
-        sta P1FireEdge
+        lda #AI_FIRE_TELEGRAPH
+        sta AIFireTelegraph
 AIFireResetCool:
         lda #AI_FIRE_PERIOD
         sta AIFireCool
@@ -953,271 +1086,14 @@ P1YInRange:
 P1YClamped:
 
         ;-------------------------------------------------------
-        ; Missile update: per-player either spawn (on fire-press edge with
-        ; non-neutral joystick and missile not active) or advance the active
-        ; missile by (DX, DY) and despawn at the screen edge.
+        ; Missile update (both players via shared subroutine).
         ;-------------------------------------------------------
-
-        ; ----- M0 -----
-        lda M0Active
-        bpl M0NotActive             ; bit 7 clear => not active, fall through to spawn
-        jmp M0Update                ; bit 7 set => already active (long-form)
-M0NotActive:
-
-        ; Not active: try to spawn.
-        lda P0FireEdge
-        bmi M0CheckJoy              ; bit 7 set => press edge present
-        jmp M0End                   ; no fire-press edge (long-form)
-M0CheckJoy:
-        lda SynthSWCHA
-        and #$F0                    ; P0 joystick (bits 4..7)
-        cmp #$F0
-        bne M0DoSpawn               ; non-neutral => spawn (long-form below)
-        jmp M0End                   ; centered => skip
-M0DoSpawn:
-
-        ; Spawn at player center.
-        clc
-        lda P0X
-        adc #4
-        sta M0X
-        clc
-        lda P0Y
-        adc #4
-        sta M0Y
-
-        ; DX from right(bit7) / left(bit6)
-        lda SynthSWCHA
-        and #$80
-        bne M0CheckLeft
-        lda #MISSILE_SPEED
-        sta M0DX
-        jmp M0SetDY
-M0CheckLeft:
-        lda SynthSWCHA
-        and #$40
-        bne M0DXZero
-        lda #(256-MISSILE_SPEED)
-        sta M0DX
-        jmp M0SetDY
-M0DXZero:
-        lda #0
-        sta M0DX
-M0SetDY:
-        ; DY from up(bit4) / down(bit5)
-        lda SynthSWCHA
-        and #$10
-        bne M0CheckDown
-        lda #(256-MISSILE_SPEED)
-        sta M0DY
-        jmp M0Activate
-M0CheckDown:
-        lda SynthSWCHA
-        and #$20
-        bne M0DYZero
-        lda #MISSILE_SPEED
-        sta M0DY
-        jmp M0Activate
-M0DYZero:
-        lda #0
-        sta M0DY
-M0Activate:
-        lda #$80
-        sta M0Active
-        lda #MISSILE_LIFE
-        sta M0Life
-        ; Seed Prev/Prev2 so a missile fired into a wall has a Prev2
-        ; that's outside the wall along its trajectory.
-        lda M0X
-        sta M0XPrev
-        sec
-        sbc M0DX
-        sec
-        sbc M0DX
-        sta M0XPrev2
-        lda M0Y
-        sta M0YPrev
-        sec
-        sbc M0DY
-        sec
-        sbc M0DY
-        sta M0YPrev2
-        ; Fire sound (shared AUDC0 channel; last fire wins)
-        lda #FIRE_DURATION
-        sta FireSoundCount
-        lda #FIRE_AUDC
-        sta AUDC0
-        lda #FIRE_AUDF
-        sta AUDF0
-        lda #FIRE_AUDV
-        sta AUDV0
-        jmp M0End
-
-M0Update:
-        ; Lifespan tick: despawn after MISSILE_LIFE frames.
-        dec M0Life
-        beq M0Despawn
-        ; Shift Prev2 := Prev, then Prev := current.
-        lda M0XPrev
-        sta M0XPrev2
-        lda M0YPrev
-        sta M0YPrev2
-        lda M0X
-        sta M0XPrev
-        lda M0Y
-        sta M0YPrev
-        ; Advance position by (DX, DY).
-        clc
-        lda M0X
-        adc M0DX
-        sta M0X
-        clc
-        lda M0Y
-        adc M0DY
-        sta M0Y
-
-        ; Edge despawn check (X then Y).
-        lda M0X
-        cmp #MPF_LEFT
-        bcc M0Despawn
-        cmp #(MPF_RIGHT+1)
-        bcs M0Despawn
-        lda M0Y
-        cmp #MPF_TOP
-        bcc M0Despawn
-        cmp #(MPF_BOTTOM+1)
-        bcs M0Despawn
-        jmp M0End
-M0Despawn:
-        lda #0
-        sta M0Active
-M0End:
-
-        ; ----- M1 -----
-        lda M1Active
-        bpl M1NotActive
-        jmp M1Update
-M1NotActive:
-
-        lda P1FireEdge
-        bmi M1CheckJoy              ; bit 7 set => press edge
-        jmp M1End
-M1CheckJoy:
-        lda SynthSWCHA
-        and #$0F                    ; P1 joystick (bits 0..3)
-        cmp #$0F
-        bne M1DoSpawn
-        jmp M1End
-M1DoSpawn:
-
-        clc
-        lda P1X
-        adc #4
-        sta M1X
-        clc
-        lda P1Y
-        adc #4
-        sta M1Y
-
-        ; DX from right(bit3) / left(bit2)
-        lda SynthSWCHA
-        and #$08
-        bne M1CheckLeft
-        lda #MISSILE_SPEED
-        sta M1DX
-        jmp M1SetDY
-M1CheckLeft:
-        lda SynthSWCHA
-        and #$04
-        bne M1DXZero
-        lda #(256-MISSILE_SPEED)
-        sta M1DX
-        jmp M1SetDY
-M1DXZero:
-        lda #0
-        sta M1DX
-M1SetDY:
-        ; DY from up(bit0) / down(bit1)
-        lda SynthSWCHA
-        and #$01
-        bne M1CheckDown
-        lda #(256-MISSILE_SPEED)
-        sta M1DY
-        jmp M1Activate
-M1CheckDown:
-        lda SynthSWCHA
-        and #$02
-        bne M1DYZero
-        lda #MISSILE_SPEED
-        sta M1DY
-        jmp M1Activate
-M1DYZero:
-        lda #0
-        sta M1DY
-M1Activate:
-        lda #$80
-        sta M1Active
-        lda #MISSILE_LIFE
-        sta M1Life
-        lda M1X
-        sta M1XPrev
-        sec
-        sbc M1DX
-        sec
-        sbc M1DX
-        sta M1XPrev2
-        lda M1Y
-        sta M1YPrev
-        sec
-        sbc M1DY
-        sec
-        sbc M1DY
-        sta M1YPrev2
-        lda #FIRE_DURATION
-        sta FireSoundCount
-        lda #FIRE_AUDC
-        sta AUDC0
-        lda #FIRE_AUDF
-        sta AUDF0
-        lda #FIRE_AUDV
-        sta AUDV0
-        jmp M1End
-
-M1Update:
-        dec M1Life
-        beq M1Despawn
-        lda M1XPrev
-        sta M1XPrev2
-        lda M1YPrev
-        sta M1YPrev2
-        lda M1X
-        sta M1XPrev
-        lda M1Y
-        sta M1YPrev
-        clc
-        lda M1X
-        adc M1DX
-        sta M1X
-        clc
-        lda M1Y
-        adc M1DY
-        sta M1Y
-
-        lda M1X
-        cmp #MPF_LEFT
-        bcc M1Despawn
-        cmp #(MPF_RIGHT+1)
-        bcs M1Despawn
-        lda M1Y
-        cmp #MPF_TOP
-        bcc M1Despawn
-        cmp #(MPF_BOTTOM+1)
-        bcs M1Despawn
-        jmp M1End
-M1Despawn:
-        lda #0
-        sta M1Active
-M1End:
+        ldx #0
+        ldy #0
+        jsr MissileUpdate
+        ldx #MIS_OFFSET
+        ldy #1
+        jsr MissileUpdate
 
         ;-------------------------------------------------------
         ; Collision processing.
@@ -1240,70 +1116,19 @@ P0FlashSame:
         dec P1FlashCount
 P1FlashSame:
 
-        bit CXM0P                ; bit 7 -> N flag
+        ; M0 hit P1?
+        bit CXM0P
         bpl NoM0Hit
-        lda #FLASH_FRAMES
-        sta P1FlashCount
-        lda #0
-        sta M0Active
-        ; Hit sound (channel 1)
-        lda #HIT_DURATION
-        sta HitSoundCount
-        lda #HIT_AUDC
-        sta AUDC1
-        lda #HIT_AUDF
-        sta AUDF1
-        lda #HIT_AUDV
-        sta AUDV1
-        ; v3: P0 scored on P1.  Increment P0Score and transition state.
-        inc P0Score
-        lda P0Score
-        cmp #WIN_SCORE
-        bcc M0HitRound
-        lda #0
-        sta GameOverWin       ; 0 = P0 wins
-        lda #ST_GAME_OVER
-        sta GameState
-        lda #GAME_OVER_DURATION
-        sta RoundTimer
-        jmp NoM0Hit
-M0HitRound:
-        lda #ROUND_PAUSE
-        sta RoundTimer
-        lda #ST_ROUND_OVER
-        sta GameState
+        ldx #0              ; missile = M0
+        ldy #0              ; scorer = P0
+        jsr ProcessHit
 NoM0Hit:
+        ; M1 hit P0?
         bit CXM1P
         bpl NoM1Hit
-        lda #FLASH_FRAMES
-        sta P0FlashCount
-        lda #0
-        sta M1Active
-        lda #HIT_DURATION
-        sta HitSoundCount
-        lda #HIT_AUDC
-        sta AUDC1
-        lda #HIT_AUDF
-        sta AUDF1
-        lda #HIT_AUDV
-        sta AUDV1
-        ; v3: P1 scored on P0.
-        inc P1Score
-        lda P1Score
-        cmp #WIN_SCORE
-        bcc M1HitRound
-        lda #1
-        sta GameOverWin       ; 1 = P1 wins
-        lda #ST_GAME_OVER
-        sta GameState
-        lda #GAME_OVER_DURATION
-        sta RoundTimer
-        jmp NoM1Hit
-M1HitRound:
-        lda #ROUND_PAUSE
-        sta RoundTimer
-        lda #ST_ROUND_OVER
-        sta GameState
+        ldx #MIS_OFFSET     ; missile = M1
+        ldy #1              ; scorer = P1
+        jsr ProcessHit
 NoM1Hit:
 
         ;-------------------------------------------------------
@@ -1315,13 +1140,11 @@ NoM1Hit:
         lda PickupActive
         bpl NoPickupColl
         bit CXP0FB
-        bvc PickupCheckP1
-        jsr GrantPickupP0
-        jmp NoPickupColl
-PickupCheckP1:
+        bvs DoGrantPickup
         bit CXP1FB
         bvc NoPickupColl
-        jsr GrantPickupP1
+DoGrantPickup:
+        jsr GrantPickup
 NoPickupColl:
 
         ;-------------------------------------------------------
@@ -1341,6 +1164,11 @@ NoPickupColl:
         lda #0
         sta P0VX
         sta P0VY
+        ; If P0 is the AI, kick off perpendicular creep so the AI can find
+        ; a way around the wall it just hit.
+        bit AIFlags
+        bpl NoP0Wall
+        jsr StartAIStuckP0
 NoP0Wall:
         bit CXP1FB
         bpl NoP1Wall
@@ -1353,6 +1181,10 @@ NoP0Wall:
         lda #0
         sta P1VX
         sta P1VY
+        lda AIFlags
+        and #$40
+        beq NoP1Wall
+        jsr StartAIStuckP1
 NoP1Wall:
 
         ; Missile-wall: revert to Prev2 then reflect at complementary angle.
@@ -1515,18 +1347,9 @@ HalveP0Vel:
         sta P0VY
 SlowdownDone:
 
-        ; Boing! Short poly4 buzz on the hit-sound channel — distinct
-        ; from fire (square) and hit (white noise).  Re-uses HitSoundCount
-        ; for decay; bounce and hit can't overlap because a hit forces
-        ; ROUND_OVER (no movement -> no bounce).
-        lda #BOUNCE_SOUND_DURATION
-        sta HitSoundCount
-        lda #BOUNCE_AUDC
-        sta AUDC1
-        lda #BOUNCE_AUDF
-        sta AUDF1
-        lda #BOUNCE_AUDV
-        sta AUDV1
+        ; Boing!
+        ldy #SND_BOUNCE
+        jsr TriggerSnd1
 
         ; Lock out joystick input so the negated velocities can separate
         ; the sprites before the user can push them back together.
@@ -1537,29 +1360,51 @@ NoBounce:
 
 RunSoundDecay:
         ;-------------------------------------------------------
-        ; Per-frame sound decay.  When a counter reaches 0, mute its channel
-        ; by zeroing AUDV.  AUDC/AUDF retain last values but are inaudible.
+        ; Per-frame sound engine.  Each channel: if count > 0,
+        ; write current freq/vol to TIA, then advance freq by
+        ; FreqDt and decay vol by VolDt.  When count reaches 0,
+        ; mute the channel.
         ;-------------------------------------------------------
-        lda FireSoundCount
-        beq FireSoundOff
-        dec FireSoundCount
-        bne FireSoundDone
-        lda #0
+        ; --- Channel 0 ---
+        lda Snd0Count
+        beq .ch0mute
+        dec Snd0Count
+        lda Snd0Freq
+        sta AUDF0
+        clc
+        adc Snd0FreqDt
+        sta Snd0Freq
+        lda Snd0Vol
         sta AUDV0
-        jmp FireSoundDone
-FireSoundOff:
-        ; counter already 0; ensure muted
-        sta AUDV0
-FireSoundDone:
-
-        lda HitSoundCount
-        beq HitSoundOff
-        dec HitSoundCount
-        bne HitSoundDone
+        sec
+        sbc Snd0VolDt
+        bcs .ch0ok
         lda #0
+.ch0ok:
+        sta Snd0Vol
+        jmp .ch1
+.ch0mute:
+        sta AUDV0
+.ch1:
+        ; --- Channel 1 ---
+        lda Snd1Count
+        beq .ch1mute
+        dec Snd1Count
+        lda Snd1Freq
+        sta AUDF1
+        clc
+        adc Snd1FreqDt
+        sta Snd1Freq
+        lda Snd1Vol
         sta AUDV1
+        sec
+        sbc Snd1VolDt
+        bcs .ch1ok
+        lda #0
+.ch1ok:
+        sta Snd1Vol
         jmp HitSoundDone
-HitSoundOff:
+.ch1mute:
         sta AUDV1
 HitSoundDone:
 
@@ -1619,23 +1464,50 @@ M1Inactive:
         sta M1RowState
 M1RowDone:
 
-        ; CTRLPF for the play kernel: mirror bit (always) plus ball-size
-        ; bits when the pickup is active.  Width pulses between 2px and 8px
-        ; every ~0.5s (FrameCounter bit 5) so the +/x animation is visible.
-        lda #$01
+        ; --- Pickup ball shape (per-frame) ---
+        ; Drive the ball to flicker between a horizontal stripe and a
+        ; vertical column on alternating frames so the retina composites
+        ; a '+' silhouette.  When inactive, PickupCtrlPF stays at $01
+        ; (mirror only) and PickupStartIter / PickupEndIter remain 0 so
+        ; the kernel's cpx checks never fire ENABL on.
+        lda #$01                ; default: mirror only, no ball size
         sta PickupCtrlPF
-        ldx PickupActive
-        bpl PickupCtrlDone
+        lda PickupActive
+        bpl PickupShapeDone
+        ; K = 88 - (PickupY / 2) is the iter where the full 5-iter band's
+        ; ENABL ON write would land (matches SpawnPickup's StartIter).
+        ; Stripe iter (centre, 1-iter window) sits at K-2 / K-3.
+        lda PickupY
+        lsr
+        sta TempScratch
+        lda #88
+        sec
+        sbc TempScratch         ; A = K
+        sta TempScratch         ; cache K for both branches
         lda FrameCounter
-        and #$20
-        beq PickupCtrlNarrow
-        lda #$31                ; mirror + ball size 8 ('+' / wide block)
+        lsr                     ; carry = bit 0
+        bcs PickupShapeColumn
+        ; Frame A: 8px x 2-scanline horizontal stripe at vertical centre
+        lda #$31
         sta PickupCtrlPF
-        jmp PickupCtrlDone
-PickupCtrlNarrow:
-        lda #$11                ; mirror + ball size 2 ('x' / dot)
+        lda TempScratch
+        sec
+        sbc #2
+        sta PickupStartIter     ; K-2 (ENABL on)
+        sec
+        sbc #1
+        sta PickupEndIter       ; K-3 (ENABL off)
+        jmp PickupShapeDone
+PickupShapeColumn:
+        ; Frame B: 2px x 10-scanline vertical column over full band
+        lda #$11
         sta PickupCtrlPF
-PickupCtrlDone:
+        lda TempScratch
+        sta PickupStartIter     ; K
+        sec
+        sbc #5
+        sta PickupEndIter       ; K-5
+PickupShapeDone:
 
         ; --- Sprite source select for the play kernel ---
         ; While BounceCool > 0, both players show the hollow / outline
@@ -1919,47 +1791,43 @@ ResetPickupTimer:
 
 ;---------------------------------------------------------------
 ; SpawnPickup — place the ball pickup at a random position somewhere
-; on the play area, picking from one of three vertical-strip zones so
-; the pickup never overlaps the centred mirrored walls regardless of
-; Y, then choosing Y across the full vertical play area.  Also
-; pre-computes PickupStartIter / PickupEndIter so the play kernel's
-; cpx-driven ENABL toggle lights the ball for PICKUP_HEIGHT iters
-; starting at PickupY.
+; on the play area.  X is restricted to the LEFT (X in [4..19]) or
+; RIGHT (X in [128..143]) strips, which fall entirely inside the PF0
+; cells (always $00 across every stored layout) so the pickup can
+; NEVER spawn on top of a wall block regardless of which layout is
+; active or where on the screen the pickup lands vertically.
 ;
-; Zone selection (AIRand & $03):
-;   0 / 1  -> middle  X in [50..104]
-;   2      -> left    X in [ 4.. 19]
-;   3      -> right   X in [128..143]
+; A previous middle-strip zone could overlap PF1/PF2 wall pixels and
+; was removed; restricting to the safe PF0 columns is the simplest
+; layout-independent guarantee.
+;
+; Zone selection uses AIRand bit 7 (high bit, sampled via BMI):
+;   bit 7 = 0 -> left   X in [ 4.. 19]
+;   bit 7 = 1 -> right  X in [128..143]
+;
+; (AIRand bit 0 was previously used, but the LCG (5x+1 mod 256) flips
+; bit 0 every frame and the respawn timer's parity (300 + AIRand) is
+; locked to that same parity, so bit 0 evaluated to 0 every single time
+; SpawnPickup fired — the pickup always landed on the left.  Bit 7 has
+; no such parity relationship with the timer countdown.)
 ;
 ; Y = 8 + (AIRand & $7F)  -> [8..135]; sprite is 10 lines tall so the
 ; bottom edge stays inside the play-area bounds (PF_BOTTOM=156).
 ;---------------------------------------------------------------
 SpawnPickup:
         lda AIRand
-        and #$03
-        cmp #2
-        bcc SpawnXMiddle
-        beq SpawnXLeft
-        ; A == 3 -> right zone
-        lda AIRand
-        and #$0F
-        clc
-        adc #128
-        jmp SpawnXSet
-SpawnXLeft:
+        bmi SpawnXRight
+        ; left zone
         lda AIRand
         and #$0F
         clc
         adc #4
         jmp SpawnXSet
-SpawnXMiddle:
+SpawnXRight:
         lda AIRand
-        and #$3F
+        and #$0F
         clc
-        adc #50
-        cmp #105
-        bcc SpawnXSet
-        lda #104                 ; clamp 105..113 down to 104 to keep ball clear of right wall
+        adc #128
 SpawnXSet:
         sta PickupX
 
@@ -1991,36 +1859,40 @@ SpawnXSet:
         rts
 
 ;---------------------------------------------------------------
-; GrantPickupP0 / GrantPickupP1 — consume the pickup for the named
-; player.  Picks +1 or -1 from AIRand bit 0 (clamped at 0 below and
-; transitioning to GAME_OVER if a +1 hits WIN_SCORE), plays a short
-; pickup chime on the hit-sound channel, deactivates the pickup,
-; and seeds a fresh respawn timer.
+; GrantPickup — consume the pickup regardless of which player touched
+; it.  The effect is fully randomized so neither player knows ahead of
+; time who benefits:
+;   AIRand bit 0 -> sign  (0 = -1, 1 = +1)
+;   AIRand bit 1 -> target (0 = P0,  1 = P1)
+; This means grabbing the ball is a gamble: it might add to you, add
+; to your opponent, subtract from you, or subtract from your opponent.
+;
+; -1 is clamped at 0 (scores can't go negative).  +1 that reaches
+; WIN_SCORE transitions to GAME_OVER with the appropriate winner.
+; Plays a short pickup chime on the hit-sound channel (high pitch for
+; +1, low pitch for -1) and seeds a fresh respawn timer.
 ;---------------------------------------------------------------
-GrantPickupP0:
+GrantPickup:
         lda #0
         sta PickupActive
         sta PickupStartIter      ; clear iter values so cpx never matches while waiting for next spawn
         sta PickupEndIter
         jsr ResetPickupTimer
-        ; Pickup chime: AUDC/AUDV common, AUDF set per-branch so the
-        ; gain (+1) tone is high-pitched and the loss (-1) tone is low.
-        lda #PICKUP_SOUND_DURATION
-        sta HitSoundCount
-        lda #PICKUP_AUDC
-        sta AUDC1
-        lda #PICKUP_AUDV
-        sta AUDV1
+        ; Dispatch on AIRand bit 1 (target player) then bit 0 (sign).
+        lda AIRand
+        and #$02
+        bne GrantTargetP1
+        ;----- Target P0 -----
         lda AIRand
         and #$01
-        beq P0PickupMinus
-        ; +1: high pitch
-        lda #PICKUP_AUDF_HI
-        sta AUDF1
+        beq GrantP0Minus
+        ; +1: gain chime
+        ldy #SND_PICKUP_HI
+        jsr TriggerSnd1
         inc P0Score
         lda P0Score
         cmp #WIN_SCORE
-        bcc P0PickupDone
+        bcc GrantDone
         lda #0
         sta GameOverWin
         lda #ST_GAME_OVER
@@ -2028,38 +1900,26 @@ GrantPickupP0:
         lda #GAME_OVER_DURATION
         sta RoundTimer
         rts
-P0PickupMinus:
-        ; -1: low pitch (still plays even if the score is already 0)
-        lda #PICKUP_AUDF_LO
-        sta AUDF1
+GrantP0Minus:
+        ; -1: loss bonk (still plays even if the score is already 0)
+        ldy #SND_PICKUP_LO
+        jsr TriggerSnd1
         lda P0Score
-        beq P0PickupDone         ; clamp at 0; can't go negative
+        beq GrantDone            ; clamp at 0; can't go negative
         dec P0Score
-P0PickupDone:
         rts
-
-GrantPickupP1:
-        lda #0
-        sta PickupActive
-        sta PickupStartIter
-        sta PickupEndIter
-        jsr ResetPickupTimer
-        lda #PICKUP_SOUND_DURATION
-        sta HitSoundCount
-        lda #PICKUP_AUDC
-        sta AUDC1
-        lda #PICKUP_AUDV
-        sta AUDV1
+GrantTargetP1:
+        ;----- Target P1 -----
         lda AIRand
         and #$01
-        beq P1PickupMinus
-        ; +1: high pitch
-        lda #PICKUP_AUDF_HI
-        sta AUDF1
+        beq GrantP1Minus
+        ; +1: gain chime
+        ldy #SND_PICKUP_HI
+        jsr TriggerSnd1
         inc P1Score
         lda P1Score
         cmp #WIN_SCORE
-        bcc P1PickupDone
+        bcc GrantDone
         lda #1
         sta GameOverWin
         lda #ST_GAME_OVER
@@ -2067,15 +1927,164 @@ GrantPickupP1:
         lda #GAME_OVER_DURATION
         sta RoundTimer
         rts
-P1PickupMinus:
-        ; -1: low pitch
-        lda #PICKUP_AUDF_LO
-        sta AUDF1
+GrantP1Minus:
+        ; -1: loss bonk
+        ldy #SND_PICKUP_LO
+        jsr TriggerSnd1
         lda P1Score
-        beq P1PickupDone
+        beq GrantDone
         dec P1Score
-P1PickupDone:
+GrantDone:
         rts
+
+;---------------------------------------------------------------
+; LockP0AimAndFire / LockP1AimAndFire — called at the end of the AI
+; fire telegraph window.  Forcibly overwrite the AI player's bits in
+; SynthSWCHA with a strict toward-opponent direction (ignoring the
+; random-skip and deadzone gates applied earlier in the frame), then
+; raise the corresponding FireEdge.  The downstream missile-spawn code
+; later in the frame reads SynthSWCHA, so this guarantees the missile
+; spawns with a non-neutral joystick and shoots straight at the
+; opponent's current position.
+;
+; SWCHA bit layout (active-low, 0 = pressed):
+;   bit 7 P0 right   bit 6 P0 left   bit 5 P0 down   bit 4 P0 up
+;   bit 3 P1 right   bit 2 P1 left   bit 1 P1 down   bit 0 P1 up
+;---------------------------------------------------------------
+LockP0AimAndFire:
+        ; Release all four P0 direction bits, then press one or two below
+        lda SynthSWCHA
+        ora #$F0
+        sta SynthSWCHA
+        ; Horizontal: P0 vs P1
+        lda P0X
+        cmp P1X
+        beq LP0V                 ; same column: no horizontal press
+        bcs LP0Left              ; P0X > P1X -> opponent left
+        lda SynthSWCHA           ; P0X < P1X -> opponent right (press bit 7)
+        and #$7F
+        sta SynthSWCHA
+        jmp LP0V
+LP0Left:
+        lda SynthSWCHA
+        and #$BF                 ; press bit 6 (P0 left)
+        sta SynthSWCHA
+LP0V:
+        ; Vertical: P0 vs P1
+        lda P0Y
+        cmp P1Y
+        beq LP0Fire              ; same row: no vertical press
+        bcs LP0Up                ; P0Y > P1Y -> opponent above
+        lda SynthSWCHA           ; P0Y < P1Y -> opponent below (press bit 5)
+        and #$DF
+        sta SynthSWCHA
+        jmp LP0Fire
+LP0Up:
+        lda SynthSWCHA
+        and #$EF                 ; press bit 4 (P0 up)
+        sta SynthSWCHA
+LP0Fire:
+        lda #$80
+        sta P0FireEdge
+        rts
+
+LockP1AimAndFire:
+        ; Release all four P1 direction bits, then press one or two below
+        lda SynthSWCHA
+        ora #$0F
+        sta SynthSWCHA
+        ; Horizontal: P1 vs P0
+        lda P1X
+        cmp P0X
+        beq LP1V
+        bcs LP1Left              ; P1X > P0X -> opponent left
+        lda SynthSWCHA           ; P1X < P0X -> opponent right (press bit 3)
+        and #$F7
+        sta SynthSWCHA
+        jmp LP1V
+LP1Left:
+        lda SynthSWCHA
+        and #$FB                 ; press bit 2 (P1 left)
+        sta SynthSWCHA
+LP1V:
+        lda P1Y
+        cmp P0Y
+        beq LP1Fire
+        bcs LP1Up
+        lda SynthSWCHA           ; P1Y < P0Y -> opponent below (press bit 1)
+        and #$FD
+        sta SynthSWCHA
+        jmp LP1Fire
+LP1Up:
+        lda SynthSWCHA
+        and #$FE                 ; press bit 0 (P1 up)
+        sta SynthSWCHA
+LP1Fire:
+        lda #$80
+        sta P1FireEdge
+        rts
+
+;---------------------------------------------------------------
+; StartAIStuckP0 / StartAIStuckP1 — invoked from the wall-revert code
+; when an AI player runs into a playfield block.  Each call:
+;   1. Loads AIStuckTimer with AI_STUCK_FRAMES (~0.6s of creep).
+;   2. Reads AIStuckDirIdx and writes the matching single-direction
+;      press into AIStuckOR (via the lookup tables below).
+;   3. Advances AIStuckDirIdx (mod 4) so the NEXT wall-hit tries a
+;      different direction; in at most four bumps the AI has tried
+;      up, right, down and left and at least one will be unblocked.
+; Random heuristics were attempted earlier (creep perpendicular to the
+; dominant approach axis with AIRand bit 5 for sub-direction); they
+; misfired when the AI hit a wall CORNER and the heuristic guessed the
+; wrong axis, plus the 50/50 random could keep picking the same blocked
+; sub-direction.  The deterministic cycle below sidesteps both failure
+; modes while staying tiny.
+;---------------------------------------------------------------
+StartAIStuckP0:
+        lda #AI_STUCK_FRAMES
+        sta AIStuckTimer
+        lda #$0F                 ; preserve P1 bits, clear P0 bits before OR
+        sta AIStuckMask
+        ldx AIStuckDirIdx
+        lda P0StuckDirTbl,X
+        sta AIStuckOR
+        inx
+        cpx #4
+        bcc SP0StoreIdx
+        ldx #0
+SP0StoreIdx:
+        stx AIStuckDirIdx
+        rts
+
+StartAIStuckP1:
+        lda #AI_STUCK_FRAMES
+        sta AIStuckTimer
+        lda #$F0                 ; preserve P0 bits, clear P1 bits before OR
+        sta AIStuckMask
+        ldx AIStuckDirIdx
+        lda P1StuckDirTbl,X
+        sta AIStuckOR
+        inx
+        cpx #4
+        bcc SP1StoreIdx
+        ldx #0
+SP1StoreIdx:
+        stx AIStuckDirIdx
+        rts
+
+; --- Stuck-recovery direction tables (mirror bit pattern semantics in
+; --- the LockPxAimAndFire helpers): one press, three releases per nibble.
+;   index 0 = up    1 = right    2 = down    3 = left
+P0StuckDirTbl:
+        .byte $E0   ; press P0 up    (bit 4=0)
+        .byte $70   ; press P0 right (bit 7=0)
+        .byte $D0   ; press P0 down  (bit 5=0)
+        .byte $B0   ; press P0 left  (bit 6=0)
+P1StuckDirTbl:
+        .byte $0E   ; press P1 up    (bit 0=0)
+        .byte $07   ; press P1 right (bit 3=0)
+        .byte $0D   ; press P1 down  (bit 1=0)
+        .byte $0B   ; press P1 left  (bit 2=0)
 
 ;---------------------------------------------------------------
 ; DiffGateP0 / DiffGateP1
@@ -2127,6 +2136,19 @@ ApplyP0Color:
         lda #FLASH_COLOR
         rts
 AP0NoFlash:
+        ; Telegraph flash: if P0 is the AI and AIFireTelegraph is counting,
+        ; alternate sprite color via FrameCounter bit 2 (~7Hz blink) so the
+        ; human opponent can see the AI is about to shoot.
+        bit AIFlags
+        bpl AP0NoTele            ; bit 7 clear: P0 not AI
+        lda AIFireTelegraph
+        beq AP0NoTele            ; not telegraphing
+        lda FrameCounter
+        and #$04
+        beq AP0NoTele            ; off-frame: fall through to normal color
+        lda #FLASH_COLOR
+        rts
+AP0NoTele:
         ldx GameState
         cpx #ST_GAME_OVER
         beq AP0InGO
@@ -2157,6 +2179,18 @@ ApplyP1Color:
         lda #FLASH_COLOR
         rts
 AP1NoFlash:
+        ; Telegraph flash: P1 AI version.
+        lda AIFlags
+        and #$40
+        beq AP1NoTele            ; P1 not AI
+        lda AIFireTelegraph
+        beq AP1NoTele
+        lda FrameCounter
+        and #$04
+        beq AP1NoTele
+        lda #FLASH_COLOR
+        rts
+AP1NoTele:
         ldx GameState
         cpx #ST_GAME_OVER
         beq AP1InGO
@@ -2182,25 +2216,31 @@ AP1Vanish:
         rts
 
 ;---------------------------------------------------------------
-; RandomizeWalls — pick a wall layout from a fixed table of 8
-; templates, plus an independent random PF pattern per wall and a
-; random color.  Each template is a substantively different vertical
-; arrangement so consecutive rounds look unmistakably different.
+; LoadLayout — point BandPtrL/H at the active stored layout's first
+; band, preload NextBandIter from that band's start_iter, and pick a
+; random WallColor for COLUPF.  Called in VBLANK during TITLE and
+; ROUND_OVER -> PLAY transitions.
 ;
-; Layout selection: bits 5..7 of AIRand index WallTemplates
-; (4 bytes per template: WallAStart, WallAEnd, WallBStart, WallBEnd).
-; A template with WallBStart=WallBEnd=0 disables wall B (the per-iter
-; cpx checks never match X >= 1, so PF1 is never lit for wall B).
-;
-; Patterns and color are chosen independently, so each layout still
-; looks different across rounds even if the same template is rolled.
-;
-; TempScratch reuse note: SafeReason as before — only called in
-; VBLANK during TITLE / ROUND_OVER state transitions.
+; LayoutIndex selects which layout (in [0..NUM_LAYOUTS-1]) is active.
+; The kernel walks the band list during render; PF state writes
+; happen entirely from this pointer, no further setup is needed.
 ;---------------------------------------------------------------
-RandomizeWalls:
-        ; Chained LCG: TempScratch = AIRand * 5 + 1, an independent
-        ; pseudo-random byte for the wall-B pattern + color mix.
+LoadLayout:
+        ldx LayoutIndex
+        lda LayoutBaseLoTbl,X
+        sta BandPtrL
+        lda LayoutBaseHiTbl,X
+        sta BandPtrH
+
+        ; First band's start_iter -> NextBandIter so the kernel's cpx
+        ; fires on the correct row boundary.
+        ldy #0
+        lda (BandPtrL),Y
+        sta NextBandIter
+
+        ; Random WallColor (kept from prior random-wall design).  Mix
+        ; AIRand with a chained LCG byte so consecutive rounds land on
+        ; visibly different colors even when the layout repeats.
         lda AIRand
         asl
         asl
@@ -2209,42 +2249,6 @@ RandomizeWalls:
         clc
         adc #1
         sta TempScratch
-
-        ; --- Pick a layout template (8 entries, 4 bytes each)
-        lda AIRand
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr                      ; bits 5..7 -> A in [0..7]
-        and #$07
-        asl
-        asl                      ; * 4
-        tax
-        lda WallTemplates,X
-        sta WallAStart
-        lda WallTemplates+1,X
-        sta WallAEnd
-        lda WallTemplates+2,X
-        sta WallBStart
-        lda WallTemplates+3,X
-        sta WallBEnd
-
-        ; --- Wall A PF pattern (low 3 bits of AIRand)
-        lda AIRand
-        and #$07
-        tay
-        lda WallPatternTbl,Y
-        sta WallAPF
-
-        ; --- Wall B PF pattern (independent index from chained LCG)
-        lda TempScratch
-        and #$07
-        tay
-        lda WallPatternTbl,Y
-        sta WallBPF
-
-        ; --- Wall color (mix of both random bytes for decorrelation)
         lda AIRand
         eor TempScratch
         and #$07
@@ -2254,21 +2258,450 @@ RandomizeWalls:
         rts
 
 ;---------------------------------------------------------------
-; WallTemplates — 8 distinct vertical wall layouts.  Each row is
-; (WallAStart, WallAEnd, WallBStart, WallBEnd) in play-kernel iter
-; counter values (X downcounts 86..1, so larger = higher on screen).
-; All gaps are >= 12 iters (24 scanlines) so a 16-line player sprite
-; can always fit between walls.
+; MissileUpdate — parameterized missile spawn / update / despawn.
+;
+; Entry:  X = 0 (M0) or MIS_OFFSET (M1)
+;         Y = 0 (P0) or 1 (P1)
+; All missile variables are accessed via lda M0xxx,X so both
+; players share a single code path.
+;
+; Joystick bits: P0 uses high nibble (bits 4–7), P1 uses low nibble
+; (bits 0–3).  For P1, SynthSWCHA is shifted left 4 so the same
+; mask constants ($80/$40/$20/$10) work for both.
 ;---------------------------------------------------------------
-WallTemplates:
-        .byte 76, 62, 38, 24    ; 0: standard         (A upper, B lower, balanced)
-        .byte 82, 56, 24, 14    ; 1: top-heavy        (tall A near top, short B near bottom)
-        .byte 80, 72, 54, 18    ; 2: bottom-heavy     (short A top, tall B mid-bottom)
-        .byte 66, 40,  0,  0    ; 3: single tall wall (only A; lots of open space below)
-        .byte 76, 68, 28, 20    ; 4: twin pillars     (two short walls, top and bottom)
-        .byte 64, 56, 44, 36    ; 5: squeeze          (close-spaced walls, both in middle)
-        .byte 84, 78, 10,  4    ; 6: spread           (one near top, one near bottom)
-        .byte 78, 72, 50, 18    ; 7: asymmetric       (short top + tall mid-bottom)
+MissileUpdate:
+        sty TempScratch          ; save player index (0 or 1)
+        ; --- Active check ---
+        lda M0Active,X
+        bpl MxNotActive
+        jmp MxDoUpdate           ; active => update path (long distance)
+MxNotActive:
+
+        ; --- Not active: try to spawn ---
+        ldy TempScratch
+        lda P0FireEdge,Y         ; P0FireEdge or P1FireEdge
+        bmi MxCheckJoy
+        rts                      ; no fire edge => done
+MxCheckJoy:
+        ; Joystick neutral check: shift P1 low nibble to high nibble
+        lda SynthSWCHA
+        ldy TempScratch
+        beq MxNoShift
+        asl
+        asl
+        asl
+        asl
+MxNoShift:
+        and #$F0
+        cmp #$F0
+        bne MxDoSpawn
+        rts                      ; neutral joystick => done
+MxDoSpawn:
+        sta MxJoyVal
+
+        ; --- Spawn at player center ---
+        ldy TempScratch
+        lda MxPlayerOff,Y        ; 0 (P0) or 4 (P1)
+        tay
+        clc
+        lda P0X,Y
+        adc #4
+        sta M0X,X
+        clc
+        lda P0Y,Y
+        adc #4
+        sta M0Y,X
+
+        ; --- DX from right / left ---
+        lda MxJoyVal
+        and #$80
+        bne MxChkLeft
+        lda #MISSILE_SPEED
+        sta M0DX,X
+        bne MxSetDY              ; always taken
+MxChkLeft:
+        lda MxJoyVal
+        and #$40
+        bne MxDXZero
+        lda #(256-MISSILE_SPEED)
+        sta M0DX,X
+        bne MxSetDY              ; always taken
+MxDXZero:
+        lda #0
+        sta M0DX,X
+MxSetDY:
+        ; --- DY from up / down ---
+        lda MxJoyVal
+        and #$10
+        bne MxChkDown
+        lda #(256-MISSILE_SPEED)
+        sta M0DY,X
+        bne MxActivate           ; always taken (neg value)
+MxChkDown:
+        lda MxJoyVal
+        and #$20
+        bne MxDYZero
+        lda #MISSILE_SPEED
+        sta M0DY,X
+        bne MxActivate           ; always taken
+MxDYZero:
+        lda #0
+        sta M0DY,X
+MxActivate:
+        lda #$80
+        sta M0Active,X
+        lda #MISSILE_LIFE
+        sta M0Life,X
+        ; Seed Prev/Prev2 along trajectory
+        lda M0X,X
+        sta M0XPrev,X
+        sec
+        sbc M0DX,X
+        sec
+        sbc M0DX,X
+        sta M0XPrev2,X
+        lda M0Y,X
+        sta M0YPrev,X
+        sec
+        sbc M0DY,X
+        sec
+        sbc M0DY,X
+        sta M0YPrev2,X
+        ; Fire sound
+        ldy #SND_FIRE
+        jsr TriggerSnd0
+        rts
+
+MxDoUpdate:
+        ; Lifespan tick
+        dec M0Life,X
+        beq MxDespawn
+        ; Shift Prev2 := Prev, Prev := current
+        lda M0XPrev,X
+        sta M0XPrev2,X
+        lda M0YPrev,X
+        sta M0YPrev2,X
+        lda M0X,X
+        sta M0XPrev,X
+        lda M0Y,X
+        sta M0YPrev,X
+        ; Advance position
+        clc
+        lda M0X,X
+        adc M0DX,X
+        sta M0X,X
+        clc
+        lda M0Y,X
+        adc M0DY,X
+        sta M0Y,X
+        ; Edge despawn check
+        lda M0X,X
+        cmp #MPF_LEFT
+        bcc MxDespawn
+        cmp #(MPF_RIGHT+1)
+        bcs MxDespawn
+        lda M0Y,X
+        cmp #MPF_TOP
+        bcc MxDespawn
+        cmp #(MPF_BOTTOM+1)
+        bcs MxDespawn
+        rts
+MxDespawn:
+        lda #0
+        sta M0Active,X
+        rts
+
+; Player position offset table: P0X is at $85, P1X is at $89 (offset 4).
+MxPlayerOff:
+        .byte 0, 4
+
+;---------------------------------------------------------------
+; TitleMelodyTick — per-frame title-screen melody sequencer.
+; Plays a short looping motif on channel 0 via direct TIA writes
+; (no SFX conflict since fire can't happen during TITLE state).
+; Called from the TITLE idle path; falls through to RunSoundDecay.
+;---------------------------------------------------------------
+TitleMelodyTick:
+        lda MelodyTimer
+        beq .advance
+        dec MelodyTimer
+        jmp RunSoundDecay
+.advance:
+        ldx MelodyIdx
+        lda TitleMelody+1,X      ; duration (0 = loop sentinel)
+        beq .loop
+        sta MelodyTimer
+        sta Snd0Count
+        lda TitleMelody,X        ; AUDF
+        sta Snd0Freq
+        beq .rest
+        lda #4                   ; AUDC = pure square (clean electronic)
+        sta AUDC0
+        lda #4                   ; soft volume
+        sta Snd0Vol
+        lda #0
+        sta Snd0FreqDt
+        sta Snd0VolDt
+        jmp .next
+.rest:
+        lda #0
+        sta Snd0Count
+        sta Snd0Vol
+.next:
+        inx
+        inx
+        stx MelodyIdx
+        jmp RunSoundDecay
+.loop:
+        lda #0
+        sta MelodyIdx
+        lda #1
+        sta MelodyTimer
+        jmp RunSoundDecay
+
+; TRON-style title melody: driving E-minor arpeggio (AABA form).
+; (AUDF, duration) pairs.  AUDF 0 = rest.  Duration 0 = loop.
+; The 1-frame engine-mute gap between notes gives natural staccato.
+TitleMelody:
+        ; === A: "The Grid" — driving octave-pulse (lower register) ===
+        .byte 31, 4     ; E lo
+        .byte 15, 4     ; E hi
+        .byte 26, 4     ; G
+        .byte 15, 4     ; E hi
+        .byte 23, 4     ; A
+        .byte 15, 4     ; E hi
+        .byte 26, 4     ; G
+        .byte 20, 4     ; B
+        ; === A (repeat — locks in the beat) ===
+        .byte 31, 4     ; E lo
+        .byte 15, 4     ; E hi
+        .byte 26, 4     ; G
+        .byte 15, 4     ; E hi
+        .byte 23, 4     ; A
+        .byte 15, 4     ; E hi
+        .byte 26, 4     ; G
+        .byte 20, 4     ; B
+        ; === B: "Light Cycles" — faster ascending run + peak ===
+        .byte 31, 3     ; E lo  (16th notes)
+        .byte 26, 3     ; G
+        .byte 23, 3     ; A
+        .byte 20, 3     ; B
+        .byte 15, 3     ; E hi
+        .byte 12, 6     ; G hi  (peak — held)
+        .byte 15, 3     ; E hi  (falling)
+        .byte 23, 3     ; A
+        .byte 31, 6     ; E lo  (resolve — held)
+        .byte 0, 3      ; breath
+        ; === A': return + ring-out ending ===
+        .byte 31, 4     ; E lo
+        .byte 15, 4     ; E hi
+        .byte 26, 4     ; G
+        .byte 15, 4     ; E hi
+        .byte 23, 4     ; A
+        .byte 20, 4     ; B
+        .byte 15, 8     ; E hi  (ring out)
+        .byte 0, 240    ; ~4 second rest before loop
+        .byte 0, 0      ; loop sentinel
+
+; Title screen color cycle: blue shades rising into yellow shades.
+TitleColorTbl:
+        .byte $86   ; dark blue
+        .byte $8A   ; medium blue
+        .byte $8E   ; bright blue
+        .byte $8A   ; medium blue
+        .byte $1A   ; dark yellow
+        .byte $1C   ; medium yellow
+        .byte $1E   ; bright yellow
+        .byte $1C   ; medium yellow
+
+;---------------------------------------------------------------
+; TriggerSnd0 / TriggerSnd1 — load a 6-byte sound definition into
+; the per-channel engine state.  Y = offset into SndDefs.
+;---------------------------------------------------------------
+TriggerSnd0:
+        lda SndDefs+0,Y
+        sta Snd0Count
+        lda SndDefs+1,Y
+        sta AUDC0
+        lda SndDefs+2,Y
+        sta Snd0Freq
+        lda SndDefs+3,Y
+        sta Snd0FreqDt
+        lda SndDefs+4,Y
+        sta Snd0Vol
+        lda SndDefs+5,Y
+        sta Snd0VolDt
+        rts
+
+TriggerSnd1:
+        lda SndDefs+0,Y
+        sta Snd1Count
+        lda SndDefs+1,Y
+        sta AUDC1
+        lda SndDefs+2,Y
+        sta Snd1Freq
+        lda SndDefs+3,Y
+        sta Snd1FreqDt
+        lda SndDefs+4,Y
+        sta Snd1Vol
+        lda SndDefs+5,Y
+        sta Snd1VolDt
+        rts
+
+;---------------------------------------------------------------
+; Sound definition table: 6 bytes per entry.
+;   [duration, AUDC, startFreq, freqDelta, startVol, volDecay]
+; freqDelta is signed (+N = pitch falls, -N = pitch rises).
+; volDecay is unsigned (subtracted each frame, clamped at 0).
+;---------------------------------------------------------------
+SndDefs:
+        ; SND_FIRE (0): descending laser sweep — ch0
+        .byte 6, 4, 4, 3, 12, 2
+        ; SND_HIT (6): white-noise explosion decay — ch1
+        .byte 10, 8, 2, 1, 15, 1
+        ; SND_BOUNCE (12): ascending poly4 boing — ch1
+        .byte 8, 1, 16, (256-2), 12, 1
+        ; SND_PICKUP_HI (18): gain chime (ascending sweep) — ch1
+        .byte 8, 4, 8, (256-1), 14, 1
+        ; SND_PICKUP_LO (24): loss bonk (descending sweep) — ch1
+        .byte 8, 6, 16, 2, 14, 2
+        ; SND_TELEPORT (30): rapid descending poly4 sweep — ch0
+        .byte 15, 1, 1, 2, 12, 0
+
+;---------------------------------------------------------------
+; ProcessHit
+; Entry: X = missile offset (0 or MIS_OFFSET)
+;        Y = scorer index  (0 = P0 scored, 1 = P1 scored)
+; Despawns missile, flashes victim, plays hit sound, increments
+; scorer, and transitions to ROUND_OVER or GAME_OVER.
+;---------------------------------------------------------------
+ProcessHit:
+        lda #0
+        sta M0Active,X          ; despawn missile
+        ; Flash the victim (1-Y): P0FlashCount=$A9, P1FlashCount=$AA
+        tya
+        eor #1
+        tax                      ; X = victim index (1-Y)
+        lda #FLASH_FRAMES
+        sta P0FlashCount,X
+        ; Score: P0Score=$AE, P1Score=$AF; INC ZP,X needs X=scorer
+        ; (must happen BEFORE TriggerSnd1 which clobbers Y)
+        tya
+        tax
+        inc P0Score,X
+        lda P0Score,X
+        cmp #WIN_SCORE
+        bcc .hitRound
+        sty GameOverWin          ; Y = 0 (P0 wins) or 1 (P1 wins)
+        lda #ST_GAME_OVER
+        sta GameState
+        lda #GAME_OVER_DURATION
+        sta RoundTimer
+        ldy #SND_HIT
+        jmp TriggerSnd1          ; tail-call
+.hitRound:
+        lda #ROUND_PAUSE
+        sta RoundTimer
+        lda #ST_ROUND_OVER
+        sta GameState
+        ldy #SND_HIT
+        jmp TriggerSnd1          ; tail-call
+
+;---------------------------------------------------------------
+; PlayfieldLayouts — table of stored playfield layouts, each a list
+; of bands (3 bytes each: start_iter, PF1, PF2) terminated by a
+; sentinel band with start_iter=0 (X downcounts 86..1 so it never
+; matches).  PF0 stays $00 every band so it doesn't appear in the
+; format — the kernel preamble clears it once for the whole frame.
+;
+; Iters are mapped to scanlines as: scanline = 2 * (86 - iter), so
+; iter 86 = top of play area, iter 1 = bottom.  Each user-supplied
+; "row" of line-height-14 layouts occupies 6 iters (12 scanlines);
+; 14 rows + 2 iters of top padding = 86 iters total.
+;
+; Layouts are referenced via LayoutBaseLoTbl/HiTbl indexed by
+; LayoutIndex.  The band walker handles BandPtrL carry so page
+; alignment is not required.
+;---------------------------------------------------------------
+LayoutBaseLoTbl:
+        .byte <Layout0Bands
+        .byte <Layout1Bands
+        .byte <Layout2Bands
+        .byte <Layout3Bands
+        .byte <Layout4Bands
+LayoutBaseHiTbl:
+        .byte >Layout0Bands
+        .byte >Layout1Bands
+        .byte >Layout2Bands
+        .byte >Layout3Bands
+        .byte >Layout4Bands
+
+; Design rules used for all layouts below (after the gameplay pass):
+;   - Rows 0..2 and rows 10..13 are PF-clear (PF1=PF2=$00) so the
+;     16-line player sprites at the top (Y 8..15) and bottom (Y 148..
+;     155) spawn bands never overlap a wall block in any layout.  This
+;     also lets SpawnPlayers use the full [4..19] / [128..143] X jitter
+;     across every layout (no per-layout narrow mask needed).
+;   - Walls always leave at least one >=12px (>= 3 PF cells) clear gap
+;     somewhere along each scanline so the 8px-wide player can navigate
+;     vertically through every layout.
+;   - Each layout uses 3..5 bands, minimising band-transition lines
+;     (each band write lands late in the iter, producing a 1-line
+;     mirror-mismatch artifact at every row boundary).
+
+; --- Layout 0: "Center Column" ---
+; A single 8px-wide center column on rows 3..9.  Cleanest, most open
+; layout; ample 76px gaps on either side of the column.
+Layout0Bands:
+        .byte 66, $00, $80    ; row 3: center column begins (X 76..83)
+        .byte 24, $00, $00    ; row 10: clear
+        .byte  0, $00, $00    ; sentinel
+
+; --- Layout 1: "Twin Bars" ---
+; Two horizontal bars at rows 4 and 9 leaving a wide 72px center gap
+; plus 28px gaps on each side.
+Layout1Bands:
+        .byte 60, $1E, $00    ; row 4: bar (X 28..43 left, mirror X 116..131)
+        .byte 54, $00, $00    ; row 5: clear
+        .byte 30, $1E, $00    ; row 9: bar (mirror of row 4)
+        .byte 24, $00, $00    ; row 10: clear
+        .byte  0, $00, $00    ; sentinel
+
+; --- Layout 2: "Staggered Pillars" ---
+; Two pairs of thin pillars at different vertical positions.  Outer
+; pillars on rows 4..5, middle pillars on rows 8..9; all gaps >= 16px.
+Layout2Bands:
+        .byte 60, $40, $00    ; row 4: outer pillars (X 20..23 left, mirror X 136..139)
+        .byte 48, $00, $00    ; row 6: clear
+        .byte 36, $00, $20    ; row 8: middle pillars (X 68..71 left, mirror X 88..91)
+        .byte 24, $00, $00    ; row 10: clear
+        .byte  0, $00, $00    ; sentinel
+
+; --- Layout 3: "Plus" ---
+; Vertical center column on rows 4..9 crossed by a horizontal beam on
+; row 6.  Beam intentionally has 12px notches either side of the
+; column so the player can slip through.
+;   Row 6 wall pattern:
+;     PF1 $FF = X 16..47   (left bar)
+;     PF2 $8F = X 48..63 + X 76..79  (right portion of left bar + column)
+;   Mirror gives matching right-half walls, leaving 12px gaps at
+;   X 64..75 and X 84..95 either side of the X 76..83 column.
+Layout3Bands:
+        .byte 60, $00, $80    ; row 4: center column begins (X 76..83)
+        .byte 48, $FF, $8F    ; row 6: horizontal beam + column (12px side gaps)
+        .byte 42, $00, $80    ; row 7: column only
+        .byte 24, $00, $00    ; row 10: clear
+        .byte  0, $00, $00    ; sentinel
+
+; --- Layout 4: "Edges + Column" ---
+; Center column on rows 3..4, edge pillars on rows 7..8.  Asymmetric
+; vertical interest; gaps everywhere >= 16px.
+Layout4Bands:
+        .byte 66, $00, $80    ; row 3: center column (X 76..83)
+        .byte 54, $00, $00    ; row 5: clear
+        .byte 42, $80, $00    ; row 7: edge pillars (X 16..19 left, mirror X 140..143)
+        .byte 30, $00, $00    ; row 9: clear
+        .byte  0, $00, $00    ; sentinel
 
 ;---------------------------------------------------------------
 ; Celebration direction tables — 8 cardinal + diagonal directions
@@ -2297,192 +2730,76 @@ CelebDYTbl:
         .byte MISSILE_SPEED            ; SE
 
 ;---------------------------------------------------------------
-; CelebSpawnM0 / CelebSpawnM1 — spawn the winner's missile from
-; their sprite center in a random cardinal/diagonal direction.
-; Seeds Prev/Prev2 along the trajectory so first-frame wall checks
-; see a coherent history.
+; CelebSpawnMissile — parameterized celebration missile spawn.
+; Entry: X = 0 (M0) or MIS_OFFSET (M1)
+;        Y = 0 (P0) or 1 (P1)
 ;---------------------------------------------------------------
+CelebSpawnMissile:
+        lda MxPlayerOff,Y        ; 0 (P0) or 4 (P1)
+        tay
+        clc
+        lda P0X,Y
+        adc #4
+        sta M0X,X
+        clc
+        lda P0Y,Y
+        adc #4
+        sta M0Y,X
+        lda AIRand
+        and #$07
+        tay
+        lda CelebDXTbl,Y
+        sta M0DX,X
+        lda CelebDYTbl,Y
+        sta M0DY,X
+        lda #$80
+        sta M0Active,X
+        lda #MISSILE_LIFE
+        sta M0Life,X
+        lda M0X,X
+        sta M0XPrev,X
+        sec
+        sbc M0DX,X
+        sec
+        sbc M0DX,X
+        sta M0XPrev2,X
+        lda M0Y,X
+        sta M0YPrev,X
+        sec
+        sbc M0DY,X
+        sec
+        sbc M0DY,X
+        sta M0YPrev2,X
+        ldy #SND_FIRE
+        jsr TriggerSnd0
+        rts
+
+; Legacy entry points for existing callers.
 CelebSpawnM0:
-        clc
-        lda P0X
-        adc #4
-        sta M0X
-        clc
-        lda P0Y
-        adc #4
-        sta M0Y
-        lda AIRand
-        and #$07
-        tay
-        lda CelebDXTbl,Y
-        sta M0DX
-        lda CelebDYTbl,Y
-        sta M0DY
-        lda #$80
-        sta M0Active
-        lda #MISSILE_LIFE
-        sta M0Life
-        lda M0X
-        sta M0XPrev
-        sec
-        sbc M0DX
-        sec
-        sbc M0DX
-        sta M0XPrev2
-        lda M0Y
-        sta M0YPrev
-        sec
-        sbc M0DY
-        sec
-        sbc M0DY
-        sta M0YPrev2
-        lda #FIRE_DURATION
-        sta FireSoundCount
-        lda #FIRE_AUDC
-        sta AUDC0
-        lda #FIRE_AUDF
-        sta AUDF0
-        lda #FIRE_AUDV
-        sta AUDV0
-        rts
-
+        ldx #0
+        ldy #0
+        jmp CelebSpawnMissile
 CelebSpawnM1:
-        clc
-        lda P1X
-        adc #4
-        sta M1X
-        clc
-        lda P1Y
-        adc #4
-        sta M1Y
-        lda AIRand
-        and #$07
-        tay
-        lda CelebDXTbl,Y
-        sta M1DX
-        lda CelebDYTbl,Y
-        sta M1DY
-        lda #$80
-        sta M1Active
-        lda #MISSILE_LIFE
-        sta M1Life
-        lda M1X
-        sta M1XPrev
-        sec
-        sbc M1DX
-        sec
-        sbc M1DX
-        sta M1XPrev2
-        lda M1Y
-        sta M1YPrev
-        sec
-        sbc M1DY
-        sec
-        sbc M1DY
-        sta M1YPrev2
-        lda #FIRE_DURATION
-        sta FireSoundCount
-        lda #FIRE_AUDC
-        sta AUDC0
-        lda #FIRE_AUDF
-        sta AUDF0
-        lda #FIRE_AUDV
-        sta AUDV0
-        rts
+        ldx #MIS_OFFSET
+        ldy #1
+        jmp CelebSpawnMissile
 
 ;---------------------------------------------------------------
-; CelebUpdateMissiles — advance both missiles' positions, age the
-; life counter, and despawn at edges.  Used during GAME_OVER where
-; InPlay's missile update doesn't run.  No collision processing.
+; CelebUpdateMissiles — advance + despawn both missiles.
+; Reuses MxDoUpdate from MissileUpdate.
 ;---------------------------------------------------------------
 CelebUpdateMissiles:
-        lda M0Active
-        bpl GOUMSkip0
-        dec M0Life
-        beq GOUMDespawn0
-        lda M0XPrev
-        sta M0XPrev2
-        lda M0YPrev
-        sta M0YPrev2
-        lda M0X
-        sta M0XPrev
-        lda M0Y
-        sta M0YPrev
-        clc
-        lda M0X
-        adc M0DX
-        sta M0X
-        clc
-        lda M0Y
-        adc M0DY
-        sta M0Y
-        lda M0X
-        cmp #MPF_LEFT
-        bcc GOUMDespawn0
-        cmp #(MPF_RIGHT+1)
-        bcs GOUMDespawn0
-        lda M0Y
-        cmp #MPF_TOP
-        bcc GOUMDespawn0
-        cmp #(MPF_BOTTOM+1)
-        bcs GOUMDespawn0
-        jmp GOUMSkip0
-GOUMDespawn0:
-        lda #0
-        sta M0Active
-GOUMSkip0:
-        lda M1Active
-        bpl GOUMSkip1
-        dec M1Life
-        beq GOUMDespawn1
-        lda M1XPrev
-        sta M1XPrev2
-        lda M1YPrev
-        sta M1YPrev2
-        lda M1X
-        sta M1XPrev
-        lda M1Y
-        sta M1YPrev
-        clc
-        lda M1X
-        adc M1DX
-        sta M1X
-        clc
-        lda M1Y
-        adc M1DY
-        sta M1Y
-        lda M1X
-        cmp #MPF_LEFT
-        bcc GOUMDespawn1
-        cmp #(MPF_RIGHT+1)
-        bcs GOUMDespawn1
-        lda M1Y
-        cmp #MPF_TOP
-        bcc GOUMDespawn1
-        cmp #(MPF_BOTTOM+1)
-        bcs GOUMDespawn1
-        jmp GOUMSkip1
-GOUMDespawn1:
-        lda #0
-        sta M1Active
-GOUMSkip1:
+        ldx #0
+        lda M0Active,X
+        bpl .skip0
+        jsr MxDoUpdate
+.skip0:
+        ldx #MIS_OFFSET
+        lda M0Active,X
+        bpl .skip1
+        jsr MxDoUpdate
+.skip1:
         rts
-
-;---------------------------------------------------------------
-; Wall PF1 patterns — each value is rendered under CTRLPF mirror so
-; pattern bits 0..3 (cells 8..11 of the left half) are reflected as
-; cells 28..31 of the right half. The on-screen result is two bars
-; whose silhouette mirrors the chosen 4-bit pattern.
-;---------------------------------------------------------------
-WallPatternTbl:
-        .byte $0F   ; ####  solid 16-px bar
-        .byte $06   ; .##.  centered 8-px bar
-        .byte $09   ; #..#  bookends with gap
-        .byte $0A   ; #.#.  alternating stripes
-        .byte $05   ; .#.#  alternating stripes (offset)
-        .byte $0E   ; ###.  three-cell bar (left-biased)
-        .byte $07   ; .###  three-cell bar (right-biased)
-        .byte $0B   ; #.##  notched bar
 
 ;---------------------------------------------------------------
 ; Wall color palette — eight bright NTSC colors so the wall is
@@ -2499,67 +2816,83 @@ WallColorTbl:
         .byte $3E   ; light orange
 
 ;---------------------------------------------------------------
-; SpawnPlayers — place P0 and P1 at random positions clear of the
-; walls.  Must be called AFTER RandomizeWalls (uses WallAEnd /
-; WallBStart to compute the gap region).
+; Per-layout AIRand mask for the SpawnPlayers X jitter.  Indexed by
+; LayoutIndex; $0F gives the full 16-px strip ([4..19] / [128..143]),
+; smaller masks narrow it.  After the layout redesign every stored
+; layout keeps rows 0..2 and 10..13 PF-clear in the player X range so
+; the full mask is safe everywhere; the table is retained so future
+; layouts with walls intruding into the spawn bands can locally
+; tighten their spawn jitter without touching SpawnPlayers.
+;---------------------------------------------------------------
+P0XJitterTbl:
+        .byte $0F   ; L0
+        .byte $0F   ; L1
+        .byte $0F   ; L2
+        .byte $0F   ; L3
+        .byte $0F   ; L4
+P1XJitterTbl:
+        .byte $0F   ; L0
+        .byte $0F   ; L1
+        .byte $0F   ; L2
+        .byte $0F   ; L3
+        .byte $0F   ; L4
+
+
+;---------------------------------------------------------------
+; SpawnPlayers — place P0 in the top blank band and P1 in the bottom
+; blank band of the active stored layout, diagonally opposite each
+; other.  PF0 is $00 for every band, so the left strip (X in [0..15])
+; and right strip (X in [144..159]) are guaranteed clear of wall
+; pixels for every layout.
 ;
-;   P0 X in [4..19]   (left side, never overlaps the centred walls)
-;   P1 X in [128..143] (right side, never overlaps the centred walls)
-;   PxY  in the vertical gap between the walls (per-player random
-;        offset so the two players don't sit at exactly the same Y)
+; After the layout redesign every stored layout also keeps rows 0..2
+; and rows 10..13 PF1/PF2-clear in the full P0/P1 spawn X range
+; ([4..19] / [128..143]), so the 16-scanline sprite at Y=8..15 (top)
+; or Y=148..155 (bottom) cannot overlap a wall on spawn.
 ;
-; Mid-gap Y in scanlines = 165 - WallAEnd - WallBStart, derived from
-; the average of (just-below-wall-A scanline) and (just-above-wall-B
-; minus sprite-height scanline).  When wall B is disabled by
-; RandomizeWalls (WallBStart=0) this collapses to a Y just below
-; wall A, which is still inside the play area.
+; Per-layout safe-X jitter masks are stored in P0XJitterTbl /
+; P1XJitterTbl above.  Currently every entry is $0F (full strip);
+; the indirection is preserved so any future layout that needs a
+; tighter spawn window can override its own entry without touching
+; this routine.
 ;
+; A small AIRand-derived Y jitter keeps spawns visually varied.
 ; Velocities and Prev/Prev2 history are reset so the wall-revert
 ; logic doesn't teleport the player on the very first frame.
 ;---------------------------------------------------------------
 SpawnPlayers:
-        ; mid Y
-        lda #165
-        sec
-        sbc WallAEnd
-        sec
-        sbc WallBStart
-        sta TempScratch          ; TempScratch = mid Y
-
-        ; P0 Y = mid + (AIRand & $03) - 1   -> mid-1 .. mid+2
+        ; P0 Y = 8 + (AIRand & $07)            -> [8..15]
         lda AIRand
-        and #$03
-        sec
-        sbc #1
+        and #$07
         clc
-        adc TempScratch
+        adc #8
         sta P0Y
 
-        ; P1 Y = mid + ((AIRand >> 2) & $03) - 1
+        ; P1 Y = 148 + ((AIRand >> 3) & $07)   -> [148..155]
         lda AIRand
         lsr
         lsr
-        and #$03
-        sec
-        sbc #1
+        lsr
+        and #$07
         clc
-        adc TempScratch
+        adc #148
         sta P1Y
 
-        ; P0 X = 4 + (AIRand & $0F)            -> [4..19]
+        ; P0 X = 4 + (AIRand & P0XJitterTbl[LayoutIndex])
+        ldy LayoutIndex
         lda AIRand
-        and #$0F
+        and P0XJitterTbl,Y
         clc
         adc #4
         sta P0X
 
-        ; P1 X = 128 + ((AIRand >> 4) & $0F)    -> [128..143]
+        ; P1 X = 128 + ((AIRand >> 4) & P1XJitterTbl[LayoutIndex])
         lda AIRand
         lsr
         lsr
         lsr
         lsr
-        and #$0F
+        and P1XJitterTbl,Y
         clc
         adc #128
         sta P1X
@@ -2589,18 +2922,20 @@ SpawnPlayers:
         rts
 
 ;---------------------------------------------------------------
-; TITLE KERNEL — renders "DEFT WARS" once across the screen using
-; an asymmetric (non-mirrored) playfield with mid-line PF0/PF1/PF2
-; right-half writes.  Layout: 80 lines top pad + 48 lines glyphs
-; (6 rows x 8 scanlines) + 64 lines bottom pad = 192 visible lines.
+; TITLE KERNEL — asymmetric playfield, line-height 1 (no repeat).
+; Layout: 47 top pad + 34 bitmap scanlines + 111 bottom pad = 192.
 ;
-; Per-scanline timing (target windows for right-half PF writes):
-;   PF0 right write window: cycles 28..49 (after PF0L latch, before PF0R)
-;   PF1 right write window: cycles 39..55 (after PF1L latch, before PF1R)
-;   PF2 right write window: cycles 50..65 (after PF2L latch, before PF2R)
+; Per-scanline timing (right-half PF write windows):
+;   PF0R: cycles 28..49    PF1R: cycles 39..55    PF2R: cycles 50..65
 ;---------------------------------------------------------------
 TitleKernel:
-        lda #TITLE_COLOR
+        ; Color cycle: blue <-> yellow, changes every 4 frames
+        lda FrameCounter
+        lsr
+        lsr
+        and #$07
+        tax
+        lda TitleColorTbl,X
         sta COLUPF
         lda #0
         sta CTRLPF              ; bit0=0 -> non-mirrored: PF redrawn for right
@@ -2608,42 +2943,38 @@ TitleKernel:
         sta PF1
         sta PF2
 
-        ; Top spacing: 80 black scanlines
-        ldx #80
+        ; Top spacing: 47 black scanlines
+        ldx #47
 T_TopLoop:
         sta WSYNC
         dex
         bne T_TopLoop
 
-        ; "DEFT WARS" — 6 glyph rows x 8 scanlines, asymmetric playfield.
+        ; Title bitmap — 34 rows, 1 scanline each, asymmetric playfield.
         ldy #0
-T_TitleOuter:
-        ldx #8
-T_TitleInner:
+T_TitleLoop:
         sta WSYNC                ; cycle 0
-        lda TitleLeftPF0,Y       ; +4 = 4
+        lda TitleBitmap+0,Y      ; +4 = 4
         sta PF0                  ; +3 = 7  (HBLANK)
-        lda TitleLeftPF1,Y       ; +4 = 11
+        lda TitleBitmap+1,Y      ; +4 = 11
         sta PF1                  ; +3 = 14 (HBLANK)
-        lda TitleLeftPF2,Y       ; +4 = 18
-        sta PF2                  ; +3 = 21 (HBLANK; PF2L read starts ~cyc 38.7)
-        nop                      ; +2 = 23
-        nop                      ; +2 = 25
-        nop                      ; +2 = 27
-        nop                      ; +2 = 29
-        lda TitleRightPF0,Y      ; +4 = 33
-        sta PF0                  ; +3 = 36 (window 28..49) ✓
-        lda TitleRightPF1,Y      ; +4 = 40
-        sta PF1                  ; +3 = 43 (window 39..55) ✓
-        lda TitleRightPF2,Y      ; +4 = 47
-        nop                      ; +2 = 49
-        nop                      ; +2 = 51
-        sta PF2                  ; +3 = 54 (window 50..65) ✓
-        dex                      ; +2 = 56
-        bne T_TitleInner         ; +3 = 59 (taken)
-        iny
-        cpy #6
-        bne T_TitleOuter
+        lda TitleBitmap+2,Y      ; +4 = 18
+        sta PF2                  ; +3 = 21 (HBLANK)
+        pha                      ; +3 = 24 (timing delay)
+        pla                      ; +4 = 28
+        lda TitleBitmap+3,Y      ; +4 = 32
+        sta PF0                  ; +3 = 35 (window 28..49) ✓
+        lda TitleBitmap+4,Y      ; +4 = 39
+        sta PF1                  ; +3 = 42 (window 39..55) ✓
+        lda TitleBitmap+5,Y      ; +4 = 46
+        nop                      ; +2 = 48
+        sta PF2                  ; +3 = 51 (window 50..65) ✓
+        tya                      ; +2 = 53
+        clc                      ; +2 = 55
+        adc #6                   ; +2 = 57
+        tay                      ; +2 = 59
+        cpy #204                 ; +2 = 61
+        bne T_TitleLoop          ; +3 = 64 (taken)
 
         lda #0
         sta PF0
@@ -2661,8 +2992,8 @@ T_TitleInner:
         sta TempScratch
         ldy #0
 
-        ; Bottom pad: 23 pre + 1 setup + 16 digit + 24 post = 64 lines.
-        ldx #23
+        ; Bottom pad: 70 pre + 1 setup + 16 digit + 24 post = 111 lines.
+        ldx #70
 T_BotPreLoop:
         sta WSYNC
         dex
@@ -2714,12 +3045,28 @@ PlayKernel:
         ; Each iteration's bookkeeping consumes ~106 cycles, which naturally
         ; spans 2 scanlines (~152 cycles available); GRP/ENAM are written
         ; once during line A's HBLANK and persist through line B unchanged.
+        ;
+        ; Reset the band walker to the active layout's first band: the
+        ; kernel advances BandPtr while drawing, so without this we'd
+        ; render correctly the first frame but skip all bands on every
+        ; subsequent frame (NextBandIter would be the sentinel 0).
+        ldx LayoutIndex
+        lda LayoutBaseLoTbl,X
+        sta BandPtrL
+        lda LayoutBaseHiTbl,X
+        sta BandPtrH
+        ldy #0
+        lda (BandPtrL),Y
+        sta NextBandIter
+
         lda PickupCtrlPF        ; mirror bit + ball size for this frame
         sta CTRLPF
         lda WallColor           ; randomized wall color (refreshed each round)
         sta COLUPF
-        lda #0                  ; ensure walls + ball start cleared at top
+        lda #0                  ; ensure playfield + ball start cleared at top
+        sta PF0
         sta PF1
+        sta PF2
         sta ENABL
         ldx #86                 ; iteration count (each iter = 2 scanlines)
 PlayLoop:
@@ -2728,8 +3075,8 @@ PlayLoop:
         ; Sequence consumes ~24 cycles total; missile X bound MPF_LEFT=8
         ; ensures the latest write (ENAM1 ~cycle 24) lands before missile
         ; trigger at color clock 76+.  ENABL is NOT written here — it's
-        ; toggled later (next to the wall transitions) via cpx checks so
-        ; the per-iter cycle count fits the 2-line kernel budget.
+        ; toggled later (alongside the band-driven PF writes) via cpx
+        ; checks so the per-iter cycle count fits the 2-line kernel.
         lda P0Curr
         sta GRP0
         lda P1Curr
@@ -2787,32 +3134,35 @@ M1NextOff:
         sta M1Curr
 M1NextDone:
 
-        ; --- Wall transitions ---
-        ; X is the iteration counter (downcount from 86).  Wall start/end
-        ; iters and PF patterns are pulled from zero-page values that are
-        ; randomized once per round in RandomizeWalls.  The mirrored
-        ; CTRLPF turns each PF1 byte into two horizontally symmetric
-        ; bars on screen.
-        cpx WallAStart
-        bne NotWallAStart
-        lda WallAPF
+        ; --- Band-driven playfield transitions ---
+        ; X is the iter counter (86..1).  Each stored layout is a list
+        ; of (start_iter, PF1, PF2) bands in ROM.  When X hits
+        ; NextBandIter, write the band's PF1/PF2 pair and advance
+        ; BandPtr by 3 to the next band.  The list ends with
+        ; start_iter=0 which X (1..86) never matches, so PF holds the
+        ; last band's values.  CTRLPF mirror bit is set by
+        ; PickupCtrlPF, so each PF byte reflects to the right half.
+        ; PF0 is unconditionally $00 (cleared once in the preamble).
+        cpx NextBandIter
+        bne NotBandStart
+        ldy #1
+        lda (BandPtrL),Y         ; PF1
         sta PF1
-NotWallAStart:
-        cpx WallAEnd
-        bne NotWallAEnd
-        lda #0
-        sta PF1
-NotWallAEnd:
-        cpx WallBStart
-        bne NotWallBStart
-        lda WallBPF
-        sta PF1
-NotWallBStart:
-        cpx WallBEnd
-        bne NotWallBEnd
-        lda #0
-        sta PF1
-NotWallBEnd:
+        iny
+        lda (BandPtrL),Y         ; PF2
+        sta PF2
+        ; Advance BandPtr by 3 to the next band's start_iter.
+        clc
+        lda BandPtrL
+        adc #3
+        sta BandPtrL
+        bcc BandNoCarry
+        inc BandPtrH
+BandNoCarry:
+        ldy #0
+        lda (BandPtrL),Y
+        sta NextBandIter
+NotBandStart:
 
         ; --- Pickup ENABL transitions ---
         ; Toggle ENABL via cpx the same way walls toggle PF1.  When the
@@ -2843,8 +3193,8 @@ PlayLoopExit:
         sta ENAM0
         sta ENAM1
         sta ENABL                ; clear ball in case it was rendering
-        sta PF1                 ; clear wall PF in case last iter was inside
         sta PF0
+        sta PF1                  ; clear PF in case last band kept content lit
         sta PF2
 
 KernelDone:
@@ -2978,74 +3328,51 @@ DigitGfx:
         .byte %01111110
 
 ;---------------------------------------------------------------
-; Playfield letter tables for the title screen "DEFT WARS".
+; Title Screen Bitmap — mode: asymmetric, line-height 1
 ;
-; Cells per scanline (40 total, 4 px each):
-;   Left half  (cells  0..19): PF0L (4) + PF1L (8) + PF2L (8)
-;   Right half (cells 20..39): PF0R (4) + PF1R (8) + PF2R (8)
-; Cell-to-bit mapping:
-;   PF0L: cells 0..3   -> bits 4,5,6,7
-;   PF1L: cells 4..11  -> bits 7,6,5,4,3,2,1,0
-;   PF2L: cells 12..19 -> bits 0,1,2,3,4,5,6,7
-;   PF0R: cells 20..23 -> bits 4,5,6,7
-;   PF1R: cells 24..31 -> bits 7..0
-;   PF2R: cells 32..39 -> bits 0..7
+; 6 bytes per row: PF0L, PF1L, PF2L, PF0R, PF1R, PF2R
+; 34 rows (one scanline each).  94 top pad + 34 bitmap + 64 bottom = 192.
 ;
-; Glyph layout (3 px wide except W which is 5 wide; 1 px gap):
-;   Left half : margin(2) D(3) gap(1) E(3) gap(1) F(3) gap(1) T(3) margin(3)
-;   Right half: margin(1) W(5) gap(1) A(3) gap(1) R(3) gap(1) S(3) margin(2)
-; W spans 5 cells because a 3-wide W is indistinguishable from U/Y/V.
+; PF bit→cell mapping (each cell = 4 color clocks):
+;   PF0: bits 4,5,6,7          → 4 cells  (left to right)
+;   PF1: bits 7,6,5,4,3,2,1,0  → 8 cells  (reversed!)
+;   PF2: bits 0,1,2,3,4,5,6,7  → 8 cells  (left to right)
 ;---------------------------------------------------------------
-
-TitleLeftPF0:
-        .byte $C0   ; row 0  D=### E=### F=### T=###
-        .byte $40   ; row 1
-        .byte $40   ; row 2
-        .byte $40   ; row 3
-        .byte $40   ; row 4
-        .byte $C0   ; row 5
-
-TitleLeftPF1:
-        .byte $BB   ; row 0
-        .byte $A2   ; row 1
-        .byte $BB   ; row 2
-        .byte $A2   ; row 3
-        .byte $A2   ; row 4
-        .byte $BA   ; row 5
-
-TitleLeftPF2:
-        .byte $1D   ; row 0
-        .byte $08   ; row 1
-        .byte $09   ; row 2
-        .byte $08   ; row 3
-        .byte $08   ; row 4
-        .byte $08   ; row 5
-
-; W (5-wide) spans cells 21..25, so it covers PF0R cells 21..23
-; (bits 5,6,7) and PF1R cells 24..25 (bits 7,6).
-TitleRightPF0:
-        .byte $20   ; row 0  W=#...# (left 3 cells of W)
-        .byte $20   ; row 1  W=#...#
-        .byte $A0   ; row 2  W=#.#.#
-        .byte $A0   ; row 3  W=#.#.#
-        .byte $60   ; row 4  W=##.##
-        .byte $40   ; row 5  W=.#.#.
-
-TitleRightPF1:
-        .byte $5D   ; row 0  W(end) A=### R=###
-        .byte $55   ; row 1  W(end) A=#.# R=#.#
-        .byte $5D   ; row 2  W(end) A=### R=###
-        .byte $55   ; row 3  W(end) A=#.# R=##.(start)
-        .byte $D5   ; row 4  W(end) A=#.# R=#.#
-        .byte $95   ; row 5  W(end) A=#.# R=#.#
-
-TitleRightPF2:
-        .byte $3B   ; row 0  R(end) S=###
-        .byte $0A   ; row 1  R(end)=#.# S=#..
-        .byte $3B   ; row 2  R(end)=### S=###
-        .byte $21   ; row 3  R(end)=#.0 S=..#
-        .byte $22   ; row 4  R(end)=#.# S=..#
-        .byte $3A   ; row 5  R(end)=#.# S=###
+TitleBitmap:
+        .byte $00,$00,$40,$00,$00,$00 ;|                  X ||                    | (  7)
+        .byte $00,$00,$E0,$00,$00,$00 ;|                 XXX||                    | (  8)
+        .byte $C0,$BB,$E1,$00,$A9,$08 ;|  XXX XXX XXX    XXX||    X X X  X   X    | (  9)
+        .byte $C0,$91,$10,$10,$A9,$08 ;|  XXX  X   X    X   ||X   X X X  X   X    | ( 10)
+        .byte $40,$91,$10,$10,$AA,$15 ;|  X X  X   X    X   ||X   X X X X X X X   | ( 11)
+        .byte $40,$91,$08,$20,$AA,$15 ;|  X X  X   X   X    || X  X X X X X X X   | ( 12)
+        .byte $40,$91,$08,$20,$AA,$15 ;|  X X  X   X   X    || X  X X X X X X X   | ( 13)
+        .byte $40,$91,$04,$40,$AA,$15 ;|  X X  X   X  X     ||  X X X X X X X X   | ( 14)
+        .byte $40,$91,$44,$40,$AA,$15 ;|  X X  X   X  X   X ||  X X X X X X X X   | ( 15)
+        .byte $40,$91,$04,$40,$AA,$15 ;|  X X  X   X  X     ||  X X X X X X X X   | ( 16)
+        .byte $40,$91,$04,$40,$AA,$15 ;|  X X  X   X  X     ||  X X X X X X X X   | ( 17)
+        .byte $C0,$11,$08,$20,$AA,$15 ;|  XX   X   X   X    || X  X X X X X X X   | ( 18)
+        .byte $C0,$11,$08,$20,$AB,$1D ;|  XX   X   X   X    || X  X X X XXX XXX   | ( 19)
+        .byte $40,$91,$10,$10,$AB,$0D ;|  X X  X   X    X   ||X   X X X XXX XX    | ( 20)
+        .byte $40,$91,$10,$10,$AB,$0D ;|  X X  X   X    X   ||X   X X X XXX XX    | ( 21)
+        .byte $40,$91,$A0,$00,$AB,$0D ;|  X X  X   X     X X||    X X X XXX XX    | ( 22)
+        .byte $40,$91,$E0,$00,$52,$05 ;|  X X  X   X     XXX||     X X  X X X     | ( 23)
+        .byte $40,$91,$40,$00,$52,$15 ;|  X X  X   X      X ||     X X  X X X X   | ( 24)
+        .byte $40,$91,$40,$00,$52,$15 ;|  X X  X   X      X ||     X X  X X X X   | ( 25)
+        .byte $40,$91,$00,$00,$52,$15 ;|  X X  X   X        ||     X X  X X X X   | ( 26)
+        .byte $40,$91,$00,$00,$52,$15 ;|  X X  X   X        ||     X X  X X X X   | ( 27)
+        .byte $40,$91,$00,$00,$52,$15 ;|  X X  X   X        ||     X X  X X X X   | ( 28)
+        .byte $40,$B9,$00,$00,$52,$15 ;|  X X XXX  X        ||     X X  X X X X   | ( 29)
+        .byte $C0,$80,$00,$00,$00,$00 ;|  XXX               ||                    | ( 30)
+        .byte $00,$00,$00,$00,$00,$00 ;|                    ||                    | ( 31)
+        .byte $00,$00,$00,$00,$00,$00 ;|                    ||                    | ( 32)
+        .byte $00,$00,$00,$00,$00,$00 ;|                    ||                    | ( 33)
+        .byte $C0,$BB,$01,$00,$FB,$1D ;|  XXX XXX XXX       ||    XXXXX XXX XXX   | ( 34)
+        .byte $C0,$BB,$01,$00,$FB,$1D ;|  XXX XXX XXX       ||    XXXXX XXX XXX   | ( 35)
+        .byte $40,$AA,$01,$00,$8A,$15 ;|  X X X X X X       ||    X   X X X X X   | ( 36)
+        .byte $C0,$BB,$01,$00,$FB,$1D ;|  XXX XXX XXX       ||    XXXXX XXX XXX   | ( 37)
+        .byte $00,$00,$00,$00,$00,$00 ;|                    ||                    | ( 38)
+        .byte $00,$00,$00,$00,$00,$00 ;|                    ||                    | ( 39)
+        .byte $00,$00,$00,$00,$00,$00 ;|                    ||                    | ( 40)
 
 ;---------------------------------------------------------------
 ; Reset / NMI / IRQ vectors

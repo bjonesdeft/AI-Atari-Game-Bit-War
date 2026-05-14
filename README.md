@@ -1,39 +1,58 @@
 # Bit War!  For the Atari 2600
 
-A 4KB NTSC Atari 2600 demo ROM written in 6502 assembly and built with DASM.
+A 4KB NTSC Atari 2600 game ROM written in 6502 assembly and built with DASM.
 Two joysticks each control a sprite (acceleration + friction movement) and can
-fire a single-pixel missile in any of 8 directions. The title screen displays
-**"DEFT WARS"** once across the screen on power-on; pressing fire on either
-joystick starts gameplay.
+fire a single-pixel missile in any of 8 directions.
 
-v2 added a low-pitched fire SFX, a high-pitched hit SFX (white noise burst),
-and player-vs-player collisions that bounce the sprites apart with an 8-frame
-input lockout so they actually separate.
+## Title Screen
 
-v3 layers a full match flow on top:
+The title screen features a custom bitmap-art title drawn as a row-major
+bit-array template (line-height 1, one scanline per row) using an asymmetric
+playfield.  The playfield color cycles between shades of blue and yellow, and
+a **TRON-style E-minor arpeggio** loops in the background.  Pressing fire on
+either joystick starts gameplay.
+
+## Gameplay
 
 - A score band at the top of the screen shows two single-digit scores. First
   to **8 hits** wins (best of 15).
-- Whichever player did NOT hold fire on the title screen becomes a simple
-  chase-and-shoot **AI**. If both press, both are human.
+- **Game select**: the SWCHB Select switch toggles between Game 1
+  (single-player vs AI) and Game 2 (two-player).  In Game 1, whichever
+  stick fires first is human; the other becomes AI.
 - The two console **difficulty switches** (SWCHB bits 6/7) gate per-player
   acceleration. Pro/A accelerates every frame; Novice/B only every other
-  frame, so movement starts and reverses more sluggishly.
-- Two centred vertical **walls** block player motion and reflect missiles at
-  complementary angles. Missiles auto-despawn after ~0.5s so they cannot
-  bounce indefinitely between walls.
-- On a player-vs-player overlap, the bounce now also **slows down** whichever
-  player was moving faster (its X/Y velocity components are halved).
-- During the bounce-cooldown, both sprites swap to a **hollow / outline**
-  frame so the contact is visually obvious.
-- A successful missile hit increments the scorer, plays the hit sound, then
-  drops the game into ROUND_OVER for ~1 second; positions reset and play
-  resumes.
-- When a score reaches 8 the game enters GAME_OVER. The **losing player**
-  flickers between its normal color and black (a "collapse / vanish"
-  animation) for ~1 second, after which the game **automatically returns to
-  the title screen** with both scores reset to zero. Pressing fire during
-  the GAME_OVER pause returns to the title immediately.
+  frame.
+- **Stored playfield layouts** (5 unique designs cycling per round) provide
+  walls that block player motion and reflect missiles.
+- **Pickups** spawn periodically and award a random +1 or −1 to a random
+  player's score when collected.
+- On a player-vs-player overlap, a **bounce** pushes the sprites apart and
+  the faster player is slowed.  Both sprites show a hollow outline during
+  the bounce cooldown.
+- When a score reaches 8 the game enters **GAME_OVER**: the winner's color
+  rainbow-cycles, auto-fire missiles burst in random directions, and the
+  loser flickers.  After ~4 seconds the game returns to the title screen.
+
+## Sound Engine
+
+A table-driven **per-frame sound engine** supports frequency sweeps and volume
+envelopes on both TIA channels.  Sound effects are defined as compact 6-byte
+records (duration, waveform, start freq, freq delta, start vol, vol decay):
+
+- **Fire**: descending laser sweep (pure square)
+- **Hit**: white-noise explosion decay
+- **Bounce**: ascending poly4 "boing"
+- **Pickup gain**: ascending chime
+- **Pickup loss**: descending bonk
+- **Title melody**: TRON-style AABA arpeggio (note-table sequencer)
+
+## Code Architecture
+
+Missile logic for both players is unified into parameterized subroutines
+(`MissileUpdate`, `CelebSpawnMissile`, `CelebUpdateMissiles`, `ProcessHit`)
+using X-indexed zero-page addressing with a consistent 12-byte offset between
+the M0 and M1 variable blocks.  This eliminated ~390 bytes of duplicated code,
+making room for the sound engine and title artwork.
 
 See [PRD.md](./PRD.md) and [SPECIFICATION.md](./SPECIFICATION.md) for goals,
 requirements, and the implementation plan.
@@ -136,6 +155,7 @@ Known deviations from `SPECIFICATION.md`:
 
 - Kernel is **2-line** (sprite is 8 px wide x 16 physical scanlines tall) rather than the originally drafted 1-line 8x8 kernel. This was needed to fit the 4-object (2 players + 2 missiles) per-scanline cycle budget within 76 CPU cycles.
 - Missiles are **1 px wide x 2 physical scanlines tall** (a small dot rather than a single TIA pixel). Visually equivalent to a single dot.
+- Title screen uses a **custom bitmap** (row-major, line-height 1) instead of the original "DEFT WARS" glyph table.  Sound was listed as out-of-scope in the original PRD but has been fully implemented.
 
 ## Project layout
 
@@ -145,12 +165,9 @@ Known deviations from `SPECIFICATION.md`:
 ├── SPECIFICATION.md              # Rendered spec (do not edit; regenerate)
 ├── Taskfile.yml                  # Project build runner
 ├── src/                          # 6502 assembly source
-│   └── main.s                    # entry, kernel, vectors
+│   └── main.s                    # all game code (single-file 4KB ROM)
 ├── include/                      # shared headers
 │   └── vcs.h                     # TIA/RIOT register definitions
 ├── build/                        # build artifacts (gitignored)
 └── vbrief/                       # specification source-of-truth (vBRIEF JSON)
 ```
-
-Source is organized by concern: `kernel.s`, `title.s`, `input.s`, `movement.s`,
-`missile.s`, `collision.s`, `gamestate.s` will be added as Phases P2–P5 land.
